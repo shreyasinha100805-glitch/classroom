@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uploaded Board Images - AI Board Extractor</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'><polygon points='13 2 3 14 12 14 11 22 21 10 12 10 13 2'/></svg>">
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <!-- Dynamic Constellation Particle Canvas -->
+    <canvas id="particle-canvas"></canvas>
+
+    <!-- Ambient Glowing Gradient Orbs -->
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
+    <div class="ambient-glow glow-3"></div>
+
+    <div class="app-wrapper">
+        <!-- Top Navigation -->
+        <nav class="navbar">
+            <div class="container nav-container">
+                <a href="/" class="brand-logo">
+                    <div class="logo-icon-wrap">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                        </svg>
+                    </div>
+                    <div class="brand-text">
+                        Board<span>AI</span>
+                    </div>
+                </a>
+
+                <div class="nav-links">
+                    <a href="/#pipeline-section" class="nav-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                        </svg>
+                        6-Step Architecture
+                    </a>
+                    <a href="/" class="btn-upload-more">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        Upload More Images
+                    </a>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Container -->
+        <main class="container">
+            <!-- Results Header Banner -->
+            <section class="results-header-banner">
+                <div class="results-top-bar">
+                    <div class="results-title-group">
+                        <div class="pill-announcement" style="margin-bottom: 12px;">
+                            <span class="pill-sparkle">✦</span>
+                            {{ uploaded_files|length }} Image{% if uploaded_files|length != 1 %}s{% endif %} Validated & Ready
+                        </div>
+                        <h1>Classroom Board Gallery</h1>
+                        <p>High-resolution captures verified for the complete 6-stage deep neural and linguistic extraction pipeline.</p>
+                    </div>
+
+                    <div>
+                        <a href="/" class="btn-upload-more">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 12H5M12 19l-7-7 7-7"/>
+                            </svg>
+                            Back to Upload
+                        </a>
+                    </div>
+                </div>
+
+                <!-- 6-Stage Process Ribbon -->
+                <div class="stages-compact-ribbon">
+                    <div class="ribbon-item">
+                        <span class="ribbon-step">1.0</span>
+                        <span class="ribbon-text">Upload & Validation</span>
+                    </div>
+                    <span class="ribbon-arrow">→</span>
+                    <div class="ribbon-item">
+                        <span class="ribbon-step">2.0</span>
+                        <span class="ribbon-text">Preprocessing</span>
+                    </div>
+                    <span class="ribbon-arrow">→</span>
+                    <div class="ribbon-item">
+                        <span class="ribbon-step">3.0</span>
+                        <span class="ribbon-text">CNN Classification</span>
+                    </div>
+                    <span class="ribbon-arrow">→</span>
+                    <div class="ribbon-item">
+                        <span class="ribbon-step">4.0</span>
+                        <span class="ribbon-text">OCR Extraction</span>
+                    </div>
+                    <span class="ribbon-arrow">→</span>
+                    <div class="ribbon-item">
+                        <span class="ribbon-step">5.0</span>
+                        <span class="ribbon-text">NLP Analysis</span>
+                    </div>
+                    <span class="ribbon-arrow">→</span>
+                    <div class="ribbon-item highlight">
+                        <span class="ribbon-step">6.0</span>
+                        <span class="ribbon-text">Structured Notes</span>
+                    </div>
+                </div>
+
+                <!-- Stats Metrics Strip -->
+                <div class="stats-strip">
+                    <div class="stat-box">
+                        <div class="stat-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                <polyline points="21 15 16 10 5 21"></polyline>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <h3>{{ uploaded_files|length }}</h3>
+                            <p>Validated Snapshots</p>
+                        </div>
+                    </div>
+
+                    <div class="stat-box">
+                        <div class="stat-icon" style="color: #38bdf8; background: rgba(6, 182, 212, 0.12); border-color: rgba(6, 182, 212, 0.3);">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <h3>6.0 Stages</h3>
+                            <p>Full Pipeline Armed</p>
+                        </div>
+                    </div>
+
+                    <div class="stat-box">
+                        <div class="stat-icon" style="color: #34d399; background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.3);">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <h3>Auto Notes</h3>
+                            <p>Markdown / Text Export</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Search & Filter Controls -->
+                <div class="gallery-controls-bar">
+                    <div class="search-input-wrap">
+                        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input type="text" id="search-input" class="search-input" placeholder="Filter images by filename...">
+                    </div>
+
+                    <div style="font-size: 0.85rem; color: var(--text-muted); font-family: var(--font-mono);">
+                        Showing <span style="color: #fff; font-weight: 600;">{{ uploaded_files|length }}</span> items
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Gallery Grid -->
+            {% if uploaded_files and uploaded_files|length > 0 %}
+            <div class="results-gallery-grid">
+                {% for file in uploaded_files %}
+                <div class="image-result-card" data-filename="{{ file.original_name }}" style="animation-delay: {{ loop.index0 * 0.08 }}s;">
+                    <!-- Media Box with Hover Scanline & Badges -->
+                    <div class="card-media-box" title="Click to inspect full resolution">
+                        <div class="card-floating-badges">
+                            <span class="badge-index">#{{ "%02d"|format(loop.index) }}</span>
+                            <span class="badge-format">{{ file.extension or 'IMG' }}</span>
+                        </div>
+
+                        <img
+                            src="{{ url_for('uploaded_file', filename=file.saved_name) }}"
+                            alt="{{ file.original_name }}"
+                            loading="lazy"
+                        >
+
+                        <div class="scanline-beam"></div>
+
+                        <div class="card-hover-zoom-hint">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                <line x1="11" y1="8" x2="11" y2="14"></line>
+                                <line x1="8" y1="11" x2="14" y2="11"></line>
+                            </svg>
+                            Inspect Fullsize
+                        </div>
+                    </div>
+
+                    <!-- Card Body -->
+                    <div class="card-body">
+                        <div class="card-title-row">
+                            <h3 class="card-image-name" title="{{ file.original_name }}">
+                                {{ file.original_name }}
+                            </h3>
+                            <button
+                                type="button"
+                                class="btn-copy-name"
+                                data-copy="{{ file.original_name }}"
+                                title="Copy filename"
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="card-meta-row">
+                            <span>📦 {{ file.file_size or 'Saved' }}</span>
+                            <span>📐 {{ file.dimensions or 'Verified' }}</span>
+                        </div>
+
+                        <div class="card-actions-row">
+                            <button
+                                type="button"
+                                class="btn-run-pipeline"
+                                data-saved-name="{{ file.saved_name }}"
+                                data-orig-name="{{ file.original_name }}"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                                </svg>
+                                Run 6-Stage Pipeline
+                            </button>
+
+                            <a
+                                href="{{ url_for('uploaded_file', filename=file.saved_name) }}"
+                                download="{{ file.original_name }}"
+                                class="btn-download-image"
+                                title="Download raw image"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <!-- Empty State -->
+            <div style="text-align: center; padding: 70px 20px; background: var(--bg-card); border: 1px dashed var(--border-subtle); border-radius: var(--radius-lg); margin-bottom: 50px;">
+                <div style="display: flex; justify-content: center; margin-bottom: 16px;">
+                    <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); display: flex; align-items: center; justify-content: center; color: var(--primary-indigo);">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <h3 style="font-family: var(--font-heading); font-size: 1.4rem; color: #fff; margin-bottom: 8px;">No Images Uploaded</h3>
+                <p style="color: var(--text-secondary); max-width: 420px; margin: 0 auto 24px auto;">
+                    Select or drag-and-drop classroom board images to begin automated content extraction.
+                </p>
+                <a href="/" class="btn-neural-submit">
+                    Upload Board Images
+                </a>
+            </div>
+            {% endif %}
+
+        </main>
+
+        <!-- Fullscreen Lightbox Modal -->
+        <div class="lightbox-modal" id="lightbox-modal">
+            <button class="lightbox-close-btn" id="lightbox-close" title="Close (Esc)">✕</button>
+
+            <div class="lightbox-content-box">
+                <div class="lightbox-img-wrap">
+                    <img id="lightbox-img" class="lightbox-img" src="" alt="Full view">
+                </div>
+
+                <div class="lightbox-toolbar">
+                    <button class="lightbox-tool-btn" id="lightbox-zoom-in" title="Zoom In">+</button>
+                    <button class="lightbox-tool-btn" id="lightbox-zoom-out" title="Zoom Out">-</button>
+                    <button class="lightbox-tool-btn" id="lightbox-rotate" title="Rotate">↻</button>
+                    <button class="lightbox-tool-btn" id="lightbox-reset" title="Reset View">⊙</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide-Over AI Analysis Drawer (Displays All 6 Stages & Structured Notes) -->
+        <div class="analysis-drawer" id="analysis-drawer">
+            <div class="drawer-header">
+                <div>
+                    <div class="drawer-step-badge">6-STAGE SYSTEM PIPELINE</div>
+                    <h3>
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--primary-cyan);">
+                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                        </svg>
+                        Neural Intelligence & Notes
+                    </h3>
+                </div>
+                <button class="btn-drawer-close" id="drawer-close" title="Close drawer">✕</button>
+            </div>
+
+            <div class="drawer-body" id="drawer-content">
+                <!-- Populated dynamically via script.js -->
+            </div>
+        </div>
+
+        <!-- Floating Toast Container -->
+        <div class="toast-container"></div>
+
+        <!-- Footer -->
+        <footer style="margin-top: auto; padding: 25px 0; border-top: 1px solid var(--border-subtle); text-align: center; font-size: 0.82rem; color: var(--text-muted);">
+            <div class="container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                    AI Classroom Board Content Extractor • 6-Stage Pipeline
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <span class="badge-tag">1.0 Upload</span>
+                    <span class="badge-tag">2.0 Preprocess</span>
+                    <span class="badge-tag">3.0 CNN</span>
+                    <span class="badge-tag">4.0 OCR</span>
+                    <span class="badge-tag">5.0 NLP</span>
+                    <span class="badge-tag">6.0 Notes</span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+
+</html>

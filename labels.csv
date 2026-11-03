@@ -1,0 +1,5 @@
+path,label
+dataset_samples\image_1\crop_1.jpg,text
+dataset_samples\image_1\crop_2.jpg,skip
+dataset_samples\image_1\crop_3.jpg,background
+dataset_samples\image_1\crop_4.jpg,skip
