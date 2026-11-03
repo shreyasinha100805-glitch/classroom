@@ -12,21 +12,29 @@ from werkzeug.utils import secure_filename
 from uuid import uuid4
 from PIL import Image
 
-from pipeline import PIPELINE_PROCESSES, validate_image, run_pipeline_data
+from pipeline import (
+    PIPELINE_OUTPUT_FOLDER,
+    PIPELINE_PROCESSES,
+    run_pipeline_data,
+    validate_image,
+)
 
 
 # ============================================
 # FLASK APP
 # ============================================
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="public", static_url_path="")
 
 
 # ============================================
 # UPLOAD CONFIGURATION
 # ============================================
 
-UPLOAD_FOLDER = "uploads"
+UPLOAD_FOLDER = os.path.join(
+    "/tmp" if os.environ.get("VERCEL") else ".",
+    "uploads"
+)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 ALLOWED_EXTENSIONS = {
@@ -216,7 +224,7 @@ def uploaded_file(filename):
 @app.route("/pipeline_output/<filename>")
 def pipeline_output_file(filename):
     return send_from_directory(
-        "pipeline_output",
+        PIPELINE_OUTPUT_FOLDER,
         filename
     )
 

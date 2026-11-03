@@ -97,6 +97,11 @@ The project implements the following 6 core sequential processes:
 
 ## 🚀 Running the Project
 
+### Deploying to Vercel
+Connect this repository to Vercel and set the project root to the directory containing `app.py` and `requirements.txt`. Vercel detects the Flask app from `app.py` and installs the declared dependencies automatically; push to `main` to trigger a production deployment. Frontend assets are served from `public/`.
+
+Vercel's `/tmp` storage is temporary, so uploaded and processed images are not retained between function invocations. The CNN and EasyOCR dependencies are intentionally not included in the serverless deployment; full image analysis requires running the app in an environment with TensorFlow and EasyOCR installed.
+
 ### 1. Web Application (Flask Studio)
 ```bash
 # Activate Virtual Environment

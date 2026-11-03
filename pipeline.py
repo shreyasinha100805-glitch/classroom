@@ -1,13 +1,11 @@
 import os
-import cv2
+import tempfile
 from PIL import Image
 
-from preprocessing.image_processing import preprocess_image
-from cnn.predict import predict_image
-from ocr.extractor import extract_text
-from nlp.keywords import extract_keywords
-from nlp.topics import detect_topics
-from nlp.notes import generate_structured_notes
+PIPELINE_OUTPUT_FOLDER = os.path.join(
+    tempfile.gettempdir() if os.environ.get("VERCEL") else ".",
+    "pipeline_output"
+)
 
 
 # ==============================================================================
@@ -94,6 +92,13 @@ def validate_image(image_path: str) -> dict:
 # FULL CLI EXECUTION PIPELINE
 # ==============================================================================
 def run_pipeline(image_path: str):
+    from preprocessing.image_processing import preprocess_image
+    from cnn.predict import predict_image
+    from ocr.extractor import extract_text
+    from nlp.keywords import extract_keywords
+    from nlp.topics import detect_topics
+    from nlp.notes import generate_structured_notes
+
     print()
     print("==================================================================")
     print("       AI CLASSROOM BOARD CONTENT EXTRACTOR PIPELINE")
@@ -242,11 +247,13 @@ def run_pipeline_data(image_path: str) -> dict:
     })
 
     # 2.0 Image Preprocessing
-    os.makedirs("pipeline_output", exist_ok=True)
+    os.makedirs(PIPELINE_OUTPUT_FOLDER, exist_ok=True)
     base_name = os.path.basename(image_path)
-    processed_path = os.path.join("pipeline_output", f"proc_{base_name}")
+    processed_path = os.path.join(PIPELINE_OUTPUT_FOLDER, f"proc_{base_name}")
 
     try:
+        from preprocessing.image_processing import preprocess_image
+
         preprocess_image(image_path, processed_path)
         stages_log.append({
             "step": "2.0",
@@ -264,6 +271,8 @@ def run_pipeline_data(image_path: str) -> dict:
 
     # 3.0 CNN Classification
     try:
+        from cnn.predict import predict_image
+
         cnn_result = predict_image(processed_path)
         predicted_class = cnn_result.get("class", "unknown")
         confidence = float(cnn_result.get("confidence", 0.0))
@@ -287,6 +296,8 @@ def run_pipeline_data(image_path: str) -> dict:
 
     # 4.0 OCR Text Extraction
     try:
+        from ocr.extractor import extract_text
+
         ocr_results = extract_text(processed_path)
         extracted_text = []
         ocr_clean = []
@@ -318,6 +329,9 @@ def run_pipeline_data(image_path: str) -> dict:
 
     # 5.0 NLP Analysis
     try:
+        from nlp.keywords import extract_keywords
+        from nlp.topics import detect_topics
+
         keywords = extract_keywords(combined_text, max_keywords=10) if combined_text else []
         topics = detect_topics(combined_text) if combined_text else []
         stages_log.append({
@@ -340,6 +354,8 @@ def run_pipeline_data(image_path: str) -> dict:
 
     # 6.0 Structured Notes Generation
     try:
+        from nlp.notes import generate_structured_notes
+
         structured_notes = generate_structured_notes(
             classification={"class": predicted_class, "confidence": round(confidence * 100, 2)},
             extracted_text=combined_text,
