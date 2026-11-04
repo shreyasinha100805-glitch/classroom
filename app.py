@@ -33,6 +33,7 @@ from pipeline import (
 
 app = Flask(__name__, static_folder="public", static_url_path="")
 app.secret_key = os.environ.get("SECRET_KEY", "boardai-neural-studio-secret-key-2026")
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 # Initialize authentication database
 auth.init_db()
@@ -382,4 +383,4 @@ def export_notes(filename):
 # ============================================
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(host="127.0.0.1", port=5000, debug=True)
