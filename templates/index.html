@@ -59,12 +59,6 @@
                         </button>
                     </div>
 
-                    <a href="#pipeline-section" class="nav-btn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                        </svg>
-                        6-Step Pipeline
-                    </a>
                     <a href="/results" class="nav-btn">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
@@ -122,15 +116,14 @@
                 </h1>
 
                 <p class="hero-subtitle">
-                    Transform raw blackboard, chalkboard, and whiteboard photos into structured, actionable study notes using a unified 6-stage deep convolutional, optical recognition, and natural language understanding architecture.
+                    Transform raw blackboard, chalkboard, and whiteboard photos into structured, actionable study notes using automated deep vision and text extraction.
                 </p>
 
                 <div class="neural-math-pills">
-                    <span class="math-pill pill-conv" title="Convolutional Tensor Operation"><span class="math-accent">Conv2D:</span> (W * K)(i,j)</span>
-                    <span class="math-pill pill-relu" title="Rectified Linear Unit Activation"><span class="math-accent">ReLU:</span> max(0, z)</span>
-                    <span class="math-pill pill-softmax" title="Softmax Multiclass Output Distribution"><span class="math-accent">Softmax:</span> e^{z_i} / Σ e^{z_j}</span>
-                    <span class="math-pill pill-loss" title="Sparse Categorical Cross-Entropy Objective"><span class="math-accent">Loss:</span> -Σ y_i log(p_i)</span>
-                    <span class="math-pill pill-adam" title="Adaptive Moment Estimation Optimizer"><span class="math-accent">Optimizer:</span> Adam (lr=1e-3)</span>
+                    <span class="math-pill pill-conv">Board & Text Detection</span>
+                    <span class="math-pill pill-relu">High-Accuracy OCR</span>
+                    <span class="math-pill pill-softmax">Smart Content Extraction</span>
+                    <span class="math-pill pill-adam">Organized Study Notes</span>
                 </div>
             </section>
 
@@ -241,155 +234,6 @@
                     </div>
                 </form>
             </div>
-
-            <!-- Complete 6.0 System Pipeline Process Architecture Section -->
-            <section class="pipeline-architecture-section" id="pipeline-section">
-                <div class="section-header-centered">
-                    <div class="pill-announcement" style="margin-bottom: 12px;">
-                        <span class="pill-sparkle">⚙</span>
-                        Core System Architecture
-                    </div>
-                    <h2 class="section-title">End-to-End Processing Pipeline</h2>
-                    <p class="section-subtitle">
-                        Every classroom capture traverses 6 sequential neural and algorithmic stages to synthesize clean, organized study notes.
-                    </p>
-                </div>
-
-                <div class="process-flow-grid">
-                    <!-- 1.0 Image Upload & Validation -->
-                    <div class="process-card">
-                        <div class="process-card-header">
-                            <div class="process-step-badge">1.0</div>
-                            <span class="process-tag">Stage 1</span>
-                        </div>
-                        <div class="process-icon-box">
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                <polyline points="17 8 12 3 7 8"></polyline>
-                                <line x1="12" y1="3" x2="12" y2="15"></line>
-                            </svg>
-                        </div>
-                        <h3 class="process-title">1.0 Image Upload & Validation</h3>
-                        <p class="process-desc">User uploads the classroom-board image. Input tensor verification & pixel boundary integrity.</p>
-                        <div class="process-meta-footer">
-                            <span class="process-pill-tech">(H × W × 3) RGB</span>
-                            <span class="process-pill-tech">Integrity Check</span>
-                        </div>
-                    </div>
-
-                    <!-- 2.0 Image Preprocessing -->
-                    <div class="process-card">
-                        <div class="process-card-header">
-                            <div class="process-step-badge cyan">2.0</div>
-                            <span class="process-tag cyan">Stage 2</span>
-                        </div>
-                        <div class="process-icon-box cyan">
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                                <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                                <polyline points="21 15 16 10 5 21"></polyline>
-                            </svg>
-                        </div>
-                        <h3 class="process-title">2.0 Image Preprocessing</h3>
-                        <p class="process-desc">The image is resized, denoised, enhanced and sharpened to optimize neural receptive field contrast.</p>
-                        <div class="process-meta-footer">
-                            <span class="process-pill-tech">CLAHE Contrast</span>
-                            <span class="process-pill-tech">Bilateral Denoise</span>
-                        </div>
-                    </div>
-
-                    <!-- 3.0 CNN Classification -->
-                    <div class="process-card highlight-card">
-                        <div class="process-card-header">
-                            <div class="process-step-badge emerald">3.0</div>
-                            <span class="process-tag emerald">Deep Learning</span>
-                        </div>
-                        <div class="process-icon-box emerald">
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="2" y="2" width="8" height="8" rx="2"></rect>
-                                <rect x="14" y="2" width="8" height="8" rx="2"></rect>
-                                <rect x="14" y="14" width="8" height="8" rx="2"></rect>
-                                <rect x="2" y="14" width="8" height="8" rx="2"></rect>
-                                <line x1="6" y1="10" x2="6" y2="14"></line>
-                                <line x1="18" y1="10" x2="18" y2="14"></line>
-                                <line x1="10" y1="6" x2="14" y2="6"></line>
-                                <line x1="10" y1="18" x2="14" y2="18"></line>
-                            </svg>
-                        </div>
-                        <h3 class="process-title">3.0 CNN Classification</h3>
-                        <p class="process-desc">The CNN identifies the type of image/content such as board, text or background via 3 Conv2D layers & Softmax.</p>
-                        <div class="process-meta-footer">
-                            <span class="process-pill-tech">3× Conv2D + ReLU</span>
-                            <span class="process-pill-tech">Softmax Head</span>
-                        </div>
-                    </div>
-
-                    <!-- 4.0 OCR Text Extraction -->
-                    <div class="process-card highlight-card">
-                        <div class="process-card-header">
-                            <div class="process-step-badge violet">4.0</div>
-                            <span class="process-tag violet">Deep Sequence</span>
-                        </div>
-                        <div class="process-icon-box violet">
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="4 7 4 4 20 4 20 7"></polyline>
-                                <line x1="9" y1="20" x2="15" y2="20"></line>
-                                <line x1="12" y1="4" x2="12" y2="20"></line>
-                            </svg>
-                        </div>
-                        <h3 class="process-title">4.0 OCR Text Extraction</h3>
-                        <p class="process-desc">OCR reads and extracts handwritten and printed text using CRAFT region heatmaps and BiLSTM sequence decoding.</p>
-                        <div class="process-meta-footer">
-                            <span class="process-pill-tech">CRAFT Detector</span>
-                            <span class="process-pill-tech">BiLSTM + CTC</span>
-                        </div>
-                    </div>
-
-                    <!-- 5.0 NLP Analysis -->
-                    <div class="process-card">
-                        <div class="process-card-header">
-                            <div class="process-step-badge amber">5.0</div>
-                            <span class="process-tag amber">Semantic NLP</span>
-                        </div>
-                        <div class="process-icon-box amber">
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                                <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                            </svg>
-                        </div>
-                        <h3 class="process-title">5.0 NLP Analysis</h3>
-                        <p class="process-desc">The extracted text is analyzed to identify key academic terminology, lexical frequency, and curriculum topics.</p>
-                        <div class="process-meta-footer">
-                            <span class="process-pill-tech">TF-IDF Vectorizer</span>
-                            <span class="process-pill-tech">Domain Taxonomy</span>
-                        </div>
-                    </div>
-
-                    <!-- 6.0 Structured Notes Generation -->
-                    <div class="process-card highlight-card">
-                        <div class="process-card-header">
-                            <div class="process-step-badge rose">6.0</div>
-                            <span class="process-tag rose">Knowledge Synthesis</span>
-                        </div>
-                        <div class="process-icon-box rose">
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                <polyline points="14 2 14 8 20 8"></polyline>
-                                <line x1="16" y1="13" x2="8" y2="13"></line>
-                                <line x1="16" y1="17" x2="8" y2="17"></line>
-                                <polyline points="10 9 9 9 8 9"></polyline>
-                            </svg>
-                        </div>
-                        <h3 class="process-title">6.0 Structured Notes Generation</h3>
-                        <p class="process-desc">The system combines extracted classifications, transcripts, and concepts into organized notes for students.</p>
-                        <div class="process-meta-footer">
-                            <span class="process-pill-tech">Markdown & Text</span>
-                            <span class="process-pill-tech">One-Click Export</span>
-                        </div>
-                    </div>
-                </div>
-            </section>
         </main>
 
         <!-- Processing / Uploading Modal Overlay (Walks through 1.0 to 6.0) -->
@@ -417,15 +261,13 @@
         <footer style="margin-top: auto; padding: 25px 0; border-top: 1px solid var(--border-subtle); text-align: center; font-size: 0.82rem; color: var(--text-muted);">
             <div class="container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
                 <div>
-                    AI Classroom Board Content Extractor • 6-Stage Deep Learning Pipeline
+                    AI Classroom Board Content Extractor • Intelligent Content Extractor & Note Synthesizer
                 </div>
                 <div style="display: flex; gap: 8px;">
-                    <span class="badge-tag">1.0 Upload</span>
-                    <span class="badge-tag">2.0 Preprocess</span>
-                    <span class="badge-tag">3.0 CNN</span>
-                    <span class="badge-tag">4.0 OCR</span>
-                    <span class="badge-tag">5.0 NLP</span>
-                    <span class="badge-tag">6.0 Notes</span>
+                    <span class="badge-tag">Upload</span>
+                    <span class="badge-tag">Preprocess</span>
+                    <span class="badge-tag">OCR</span>
+                    <span class="badge-tag">Notes</span>
                 </div>
             </div>
         </footer>
