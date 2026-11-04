@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log In - AI Classroom Board Content Extractor</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'><polygon points='13 2 3 14 12 14 11 22 21 10 12 10 13 2'/></svg>">
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <!-- Dynamic Constellation Particle Canvas -->
+    <canvas id="particle-canvas"></canvas>
+
+    <!-- Ambient Glowing Gradient Orbs -->
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
+    <div class="ambient-glow glow-3"></div>
+
+    <div class="app-wrapper">
+        <!-- Top Navigation -->
+        <nav class="navbar">
+            <div class="container nav-container">
+                <a href="/" class="brand-logo">
+                    <div class="logo-icon-wrap">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                        </svg>
+                    </div>
+                    <div class="brand-text">
+                        Board<span>AI</span><span class="brand-sub-badge">AI Studio</span>
+                    </div>
+                </a>
+
+                <div class="nav-links">
+                    <div class="theme-palette-picker" title="Switch Color Theme">
+                        <span class="theme-picker-label">Theme</span>
+                        <button type="button" class="theme-dot-btn active" data-set-theme="cyberpunk" title="Neon Cyberpunk">
+                            <span class="theme-dot dot-cyberpunk"></span>
+                        </button>
+                        <button type="button" class="theme-dot-btn" data-set-theme="aurora" title="Cosmic Aurora">
+                            <span class="theme-dot dot-aurora"></span>
+                        </button>
+                        <button type="button" class="theme-dot-btn" data-set-theme="solar" title="Solar Flare">
+                            <span class="theme-dot dot-solar"></span>
+                        </button>
+                        <button type="button" class="theme-dot-btn" data-set-theme="hyperdrive" title="Hyperdrive Blue">
+                            <span class="theme-dot dot-hyperdrive"></span>
+                        </button>
+                    </div>
+
+                    <a href="/" class="nav-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                        </svg>
+                        Home
+                    </a>
+                    <a href="/signup" class="nav-btn btn-nav-signup">
+                        Sign Up
+                    </a>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Authentication Section -->
+        <main class="container auth-page-container">
+            <div class="auth-card-panel">
+                <div class="auth-header">
+                    <div class="auth-icon-bubble">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                            <polyline points="10 17 15 12 10 7"></polyline>
+                            <line x1="15" y1="12" x2="3" y2="12"></line>
+                        </svg>
+                    </div>
+                    <h2 class="auth-title">Welcome Back</h2>
+                    <p class="auth-subtitle">Log in to your account to process classroom notes and access past extractions.</p>
+                </div>
+
+                <!-- Flash / Error Alerts -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="auth-alert-box alert-{{ category }}">
+                                <span>{{ message }}</span>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                {% if error %}
+                    <div class="auth-alert-box alert-error">
+                        <span>{{ error }}</span>
+                    </div>
+                {% endif %}
+
+                <!-- Login Form -->
+                <form class="auth-form" method="POST" action="/login">
+                    <div class="auth-input-group">
+                        <label for="login_identifier" class="auth-label">Username or Email</label>
+                        <div class="auth-input-wrap">
+                            <svg class="auth-input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="12" cy="7" r="4"></circle>
+                            </svg>
+                            <input
+                                type="text"
+                                id="login_identifier"
+                                name="login_identifier"
+                                class="auth-input"
+                                placeholder="Enter username or email"
+                                value="{{ login_identifier or '' }}"
+                                required
+                                autofocus
+                            >
+                        </div>
+                    </div>
+
+                    <div class="auth-input-group">
+                        <div class="auth-label-row">
+                            <label for="password" class="auth-label">Password</label>
+                        </div>
+                        <div class="auth-input-wrap">
+                            <svg class="auth-input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                            </svg>
+                            <input
+                                type="password"
+                                id="password"
+                                name="password"
+                                class="auth-input"
+                                placeholder="••••••••"
+                                required
+                            >
+                            <button type="button" class="btn-toggle-password" id="toggle-password" title="Show/Hide Password">
+                                <svg class="eye-open" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-neural-submit auth-submit-btn">
+                        <span>Log In</span>
+                        <svg class="btn-icon-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                            <polyline points="12 5 19 12 12 19"></polyline>
+                        </svg>
+                    </button>
+                </form>
+
+                <div class="auth-footer-link">
+                    Don't have an account yet? <a href="/signup">Sign up now</a>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer style="margin-top: auto; padding: 25px 0; border-top: 1px solid var(--border-subtle); text-align: center; font-size: 0.82rem; color: var(--text-muted);">
+            <div class="container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                    AI Classroom Board Content Extractor • Secure Authentication
+                </div>
+                <div>
+                    <a href="/" style="color: var(--primary-cyan); text-decoration: none;">Back to Studio</a>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    <script>
+        // Password toggle visibility
+        const toggleBtn = document.getElementById('toggle-password');
+        const pwdInput = document.getElementById('password');
+        if (toggleBtn && pwdInput) {
+            toggleBtn.addEventListener('click', () => {
+                const isPwd = pwdInput.type === 'password';
+                pwdInput.type = isPwd ? 'text' : 'password';
+                toggleBtn.style.color = isPwd ? 'var(--primary-cyan)' : 'var(--text-muted)';
+            });
+        }
+    </script>
+</body>
+
+</html>

@@ -10,3 +10,5 @@ pipeline_output/
 preprocessed/
 dataset_old/
 crop_preview.jpg
+*.db
+database.db

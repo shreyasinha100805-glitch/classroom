@@ -7,11 +7,17 @@ from flask import (
     request,
     send_from_directory,
     jsonify,
-    Response
+    Response,
+    session,
+    redirect,
+    url_for,
+    flash
 )
 from werkzeug.utils import secure_filename
 from uuid import uuid4
 from PIL import Image
+
+import auth
 
 from pipeline import (
     PIPELINE_OUTPUT_FOLDER,
@@ -26,6 +32,24 @@ from pipeline import (
 # ============================================
 
 app = Flask(__name__, static_folder="public", static_url_path="")
+app.secret_key = os.environ.get("SECRET_KEY", "boardai-neural-studio-secret-key-2026")
+
+# Initialize authentication database
+auth.init_db()
+
+
+# ============================================
+# USER SESSION INJECTOR
+# ============================================
+
+@app.context_processor
+def inject_current_user():
+    user_id = session.get("user_id")
+    if user_id:
+        user = auth.get_user_by_id(user_id)
+        if user:
+            return {"current_user": user}
+    return {"current_user": None}
 
 
 # ============================================
@@ -81,6 +105,80 @@ def home():
 @app.route("/favicon.ico")
 def favicon():
     return ("", 204)
+
+
+# ============================================
+# AUTHENTICATION ROUTES (LOGIN / SIGNUP / LOGOUT)
+# ============================================
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if session.get("user_id"):
+        return redirect(url_for("home"))
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+
+        if password != confirm_password:
+            return render_template(
+                "signup.html",
+                error="Passwords do not match.",
+                username=username,
+                email=email
+            )
+
+        user, err = auth.create_user(username, email, password)
+        if err:
+            return render_template(
+                "signup.html",
+                error=err,
+                username=username,
+                email=email
+            )
+
+        session["user_id"] = user["id"]
+        session["username"] = user["username"]
+        session["email"] = user["email"]
+        flash(f"Welcome to BoardAI, {user['username']}! Your account was successfully created.", "success")
+        return redirect(url_for("home"))
+
+    return render_template("signup.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if session.get("user_id"):
+        return redirect(url_for("home"))
+
+    if request.method == "POST":
+        identifier = request.form.get("login_identifier", "").strip()
+        password = request.form.get("password", "")
+
+        user, err = auth.authenticate_user(identifier, password)
+        if err:
+            return render_template(
+                "login.html",
+                error=err,
+                login_identifier=identifier
+            )
+
+        session["user_id"] = user["id"]
+        session["username"] = user["username"]
+        session["email"] = user["email"]
+        flash(f"Welcome back, {user['username']}!", "success")
+        return redirect(url_for("home"))
+
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    flash("You have been signed out.", "info")
+    return redirect(url_for("home"))
 
 
 # ============================================
