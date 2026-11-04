@@ -1,4 +1,5 @@
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import tempfile
 from PIL import Image
 
@@ -270,12 +271,16 @@ def run_pipeline_data(image_path: str) -> dict:
         }
 
     # 3.0 CNN Classification
+    cnn_probabilities = {}
     try:
         from cnn.predict import predict_image
 
         cnn_result = predict_image(processed_path)
         predicted_class = cnn_result.get("class", "unknown")
         confidence = float(cnn_result.get("confidence", 0.0))
+        raw_probs = cnn_result.get("probabilities", {})
+        cnn_probabilities = {k: round(v * 100, 2) for k, v in raw_probs.items()}
+        
         stages_log.append({
             "step": "3.0",
             "title": "CNN Classification",
@@ -286,6 +291,7 @@ def run_pipeline_data(image_path: str) -> dict:
     except Exception as exc:
         predicted_class = "error"
         confidence = 0.0
+        cnn_probabilities = {"board": 0.0, "text": 0.0, "background": 0.0}
         stages_log.append({
             "step": "3.0",
             "title": "CNN Classification",
@@ -395,7 +401,8 @@ def run_pipeline_data(image_path: str) -> dict:
         "pipeline_spec": PIPELINE_PROCESSES,
         "classification": {
             "class": predicted_class,
-            "confidence": round(confidence * 100, 2)
+            "confidence": round(confidence * 100, 2),
+            "probabilities": cnn_probabilities
         },
         "extracted_text": combined_text,
         "ocr_items": ocr_clean,

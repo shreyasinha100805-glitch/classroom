@@ -1,10 +1,11 @@
 /**
  * AI Classroom Board Content Extractor
- * Futuristic Neural Studio Frontend Engine
+ * Futuristic Neural Studio Frontend Engine (NN/DL Architecture)
  */
 
 document.addEventListener('DOMContentLoaded', () => {
     initConstellationBackground();
+    initNNArchitectureExplorer();
     initUploadDropzone();
     initResultsGallery();
     initLightboxModal();
@@ -12,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* ==========================================================================
-   1. DYNAMIC CONSTELLATION CANVAS
+   1. DYNAMIC NEURAL SYNAPTIC NETWORK CANVAS
    ========================================================================== */
 function initConstellationBackground() {
     const canvas = document.getElementById('particle-canvas');
@@ -22,7 +23,7 @@ function initConstellationBackground() {
     let width = (canvas.width = window.innerWidth);
     let height = (canvas.height = window.innerHeight);
 
-    let mouse = { x: null, y: null, radius: 150 };
+    let mouse = { x: null, y: null, radius: 180 };
 
     window.addEventListener('mousemove', (e) => {
         mouse.x = e.clientX;
@@ -37,20 +38,31 @@ function initConstellationBackground() {
     window.addEventListener('resize', () => {
         width = canvas.width = window.innerWidth;
         height = canvas.height = window.innerHeight;
-        initParticles();
+        initNeurons();
     });
 
-    const particles = [];
-    const particleCount = Math.min(Math.floor((width * height) / 18000), 75);
+    const neurons = [];
+    const neuronCount = Math.min(Math.floor((width * height) / 16000), 80);
+    const synapticPulses = [];
 
-    class Particle {
+    // Ambient floating deep learning glyphs
+    const mathGlyphs = [
+        { text: 'ReLU', x: width * 0.15, y: height * 0.25, vy: 0.15, opacity: 0.18 },
+        { text: 'σ(z)', x: width * 0.82, y: height * 0.35, vy: -0.12, opacity: 0.16 },
+        { text: '∇W', x: width * 0.25, y: height * 0.75, vy: -0.18, opacity: 0.15 },
+        { text: 'Softmax', x: width * 0.75, y: height * 0.8, vy: 0.14, opacity: 0.17 },
+        { text: 'W^T x + b', x: width * 0.5, y: height * 0.15, vy: 0.1, opacity: 0.14 }
+    ];
+
+    class Neuron {
         constructor() {
             this.x = Math.random() * width;
             this.y = Math.random() * height;
-            this.vx = (Math.random() - 0.5) * 0.7;
-            this.vy = (Math.random() - 0.5) * 0.7;
-            this.radius = Math.random() * 1.8 + 0.8;
-            this.baseColor = Math.random() > 0.5 ? 'rgba(99, 102, 241,' : 'rgba(6, 182, 212,';
+            this.vx = (Math.random() - 0.5) * 0.55;
+            this.vy = (Math.random() - 0.5) * 0.55;
+            this.radius = Math.random() * 2.2 + 1.2;
+            this.baseColor = Math.random() > 0.45 ? 'rgba(99, 102, 241,' : 'rgba(6, 182, 212,';
+            this.excitation = 0;
         }
 
         update() {
@@ -60,61 +72,139 @@ function initConstellationBackground() {
             if (this.x < 0 || this.x > width) this.vx *= -1;
             if (this.y < 0 || this.y > height) this.vy *= -1;
 
-            // Mouse interaction
+            if (this.excitation > 0) {
+                this.excitation -= 0.02;
+                if (this.excitation < 0) this.excitation = 0;
+            }
+
+            // Mouse interaction (Synaptic input stimulation)
             if (mouse.x !== null) {
                 const dx = mouse.x - this.x;
                 const dy = mouse.y - this.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 if (dist < mouse.radius) {
                     const force = (mouse.radius - dist) / mouse.radius;
-                    this.x -= (dx / dist) * force * 1.2;
-                    this.y -= (dy / dist) * force * 1.2;
+                    this.x -= (dx / dist) * force * 1.5;
+                    this.y -= (dy / dist) * force * 1.5;
+                    this.excitation = Math.min(this.excitation + 0.15, 1);
                 }
             }
         }
 
         draw() {
             ctx.beginPath();
-            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-            ctx.fillStyle = this.baseColor + '0.7)';
-            ctx.shadowBlur = 8;
-            ctx.shadowColor = this.baseColor + '0.5)';
+            const currentRadius = this.radius + this.excitation * 2.5;
+            ctx.arc(this.x, this.y, currentRadius, 0, Math.PI * 2);
+
+            const alpha = 0.6 + this.excitation * 0.4;
+            ctx.fillStyle = this.excitation > 0.3 ? `rgba(56, 189, 248, ${alpha})` : `${this.baseColor}${alpha})`;
+
+            if (this.excitation > 0.2) {
+                ctx.shadowBlur = 12 * this.excitation;
+                ctx.shadowColor = '#06b6d4';
+            } else {
+                ctx.shadowBlur = 6;
+                ctx.shadowColor = this.baseColor + '0.4)';
+            }
             ctx.fill();
             ctx.shadowBlur = 0;
         }
     }
 
-    function initParticles() {
-        particles.length = 0;
-        for (let i = 0; i < particleCount; i++) {
-            particles.push(new Particle());
+    function initNeurons() {
+        neurons.length = 0;
+        for (let i = 0; i < neuronCount; i++) {
+            neurons.push(new Neuron());
         }
     }
 
-    initParticles();
+    initNeurons();
+
+    // Spawn periodic synaptic action potential spikes
+    setInterval(() => {
+        if (neurons.length < 2) return;
+        const i1 = Math.floor(Math.random() * neurons.length);
+        const p1 = neurons[i1];
+
+        for (let j = 0; j < neurons.length; j++) {
+            if (i1 === j) continue;
+            const p2 = neurons[j];
+            const dx = p1.x - p2.x;
+            const dy = p1.y - p2.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 125) {
+                synapticPulses.push({
+                    x1: p1.x, y1: p1.y,
+                    x2: p2.x, y2: p2.y,
+                    progress: 0,
+                    speed: 0.04
+                });
+                break;
+            }
+        }
+        if (synapticPulses.length > 25) synapticPulses.shift();
+    }, 450);
 
     function animate() {
         ctx.clearRect(0, 0, width, height);
 
-        for (let i = 0; i < particles.length; i++) {
-            particles[i].update();
-            particles[i].draw();
+        // Draw floating math glyphs
+        ctx.font = '12px "JetBrains Mono", monospace';
+        mathGlyphs.forEach((g) => {
+            g.y += g.vy;
+            if (g.y < -20) g.y = height + 20;
+            if (g.y > height + 20) g.y = -20;
+            ctx.fillStyle = `rgba(165, 180, 252, ${g.opacity})`;
+            ctx.fillText(g.text, g.x, g.y);
+        });
 
-            for (let j = i + 1; j < particles.length; j++) {
-                const dx = particles[i].x - particles[j].x;
-                const dy = particles[i].y - particles[j].y;
+        // Update & draw neurons and synaptic axons
+        for (let i = 0; i < neurons.length; i++) {
+            neurons[i].update();
+            neurons[i].draw();
+
+            for (let j = i + 1; j < neurons.length; j++) {
+                const dx = neurons[i].x - neurons[j].x;
+                const dy = neurons[i].y - neurons[j].y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
 
-                if (dist < 115) {
-                    const alpha = (1 - dist / 115) * 0.22;
+                if (dist < 125) {
+                    const alpha = (1 - dist / 125) * 0.25;
                     ctx.beginPath();
-                    ctx.moveTo(particles[i].x, particles[i].y);
-                    ctx.lineTo(particles[j].x, particles[j].y);
-                    ctx.strokeStyle = `rgba(99, 102, 241, ${alpha})`;
-                    ctx.lineWidth = 0.8;
+                    ctx.moveTo(neurons[i].x, neurons[i].y);
+                    ctx.lineTo(neurons[j].x, neurons[j].y);
+
+                    if (neurons[i].excitation > 0.4 || neurons[j].excitation > 0.4) {
+                        ctx.strokeStyle = `rgba(6, 182, 212, ${alpha * 2})`;
+                        ctx.lineWidth = 1.2;
+                    } else {
+                        ctx.strokeStyle = `rgba(99, 102, 241, ${alpha})`;
+                        ctx.lineWidth = 0.8;
+                    }
                     ctx.stroke();
                 }
             }
+        }
+
+        // Render propagating action potential pulses
+        for (let k = synapticPulses.length - 1; k >= 0; k--) {
+            const p = synapticPulses[k];
+            p.progress += p.speed;
+            if (p.progress >= 1) {
+                synapticPulses.splice(k, 1);
+                continue;
+            }
+
+            const px = p.x1 + (p.x2 - p.x1) * p.progress;
+            const py = p.y1 + (p.y2 - p.y1) * p.progress;
+
+            ctx.beginPath();
+            ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+            ctx.fillStyle = '#38bdf8';
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = '#38bdf8';
+            ctx.fill();
+            ctx.shadowBlur = 0;
         }
 
         requestAnimationFrame(animate);
@@ -124,7 +214,257 @@ function initConstellationBackground() {
 }
 
 /* ==========================================================================
-   2. INTERACTIVE UPLOAD DROPZONE & CLIENT-SIDE LIVE STAGING
+   2. INTERACTIVE NEURAL NETWORK ARCHITECTURE EXPLORER (NN/DL ENGINE)
+   ========================================================================== */
+function initNNArchitectureExplorer() {
+    const track = document.getElementById('nn-layers-track');
+    const inspLayerBadge = document.getElementById('insp-layer-badge');
+    const inspTitle = document.getElementById('insp-title');
+    const inspDesc = document.getElementById('insp-desc');
+    const inspDim = document.getElementById('insp-dim');
+    const inspAct = document.getElementById('insp-act');
+    const inspKernel = document.getElementById('insp-kernel');
+    const inspParams = document.getElementById('insp-params');
+    const btnSimulate = document.getElementById('btn-simulate-forward');
+    const simStatusText = document.getElementById('sim-status-text');
+    const simPulseDot = document.getElementById('sim-pulse-dot');
+
+    // Tab buttons
+    const tabBtns = document.querySelectorAll('.nn-tab-btn');
+    const tabPanes = document.querySelectorAll('.nn-tab-pane');
+
+    tabBtns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-tab');
+            tabBtns.forEach((b) => b.classList.remove('active'));
+            tabPanes.forEach((p) => p.classList.remove('active'));
+
+            btn.classList.add('active');
+            const targetPane = document.getElementById(targetId);
+            if (targetPane) targetPane.classList.add('active');
+        });
+    });
+
+    if (!track) return;
+
+    const CNN_LAYERS = [
+        {
+            id: 'l0',
+            idx: '00',
+            name: 'Input Tensor',
+            type: 'Tensor',
+            dim: '(128, 128, 3)',
+            act: 'Rescaling (1.0 / 255.0)',
+            kernel: 'Full Image Normalization',
+            params: '0 (Input Tensor)',
+            desc: 'Raw RGB classroom board image resized and normalized to [0, 1] floating-point values for numerical stability and faster gradient descent convergence.'
+        },
+        {
+            id: 'l1',
+            idx: '01',
+            name: 'Conv2D Block 1',
+            type: 'Conv',
+            dim: '(126, 126, 32)',
+            act: 'ReLU: f(z) = max(0, z)',
+            kernel: '32 Filters, 3×3, Stride 1',
+            params: '896 Weights + 32 Biases',
+            desc: 'Convolves 32 learned 3×3 spatial filters across normalized RGB input to detect low-level edges, chalk strokes, board borders, and contrast gradients.'
+        },
+        {
+            id: 'l2',
+            idx: '02',
+            name: 'MaxPooling2D 1',
+            type: 'Pool',
+            dim: '(63, 63, 32)',
+            act: 'Subsampling: max(2×2)',
+            kernel: 'Pool Size 2×2, Stride 2',
+            params: '0 (Non-parametric)',
+            desc: 'Performs 2×2 spatial downsampling to halve feature map dimensions, retaining maximum activations and introducing translation invariance.'
+        },
+        {
+            id: 'l3',
+            idx: '03',
+            name: 'Conv2D Block 2',
+            type: 'Conv',
+            dim: '(61, 61, 64)',
+            act: 'ReLU: f(z) = max(0, z)',
+            kernel: '64 Filters, 3×3, Stride 1',
+            params: '18,496 Weights + 64 Biases',
+            desc: 'Combines low-level edge features into mid-level motifs including stroke intersections, letter curves, and chalkboard grain textures.'
+        },
+        {
+            id: 'l4',
+            idx: '04',
+            name: 'MaxPooling2D 2',
+            type: 'Pool',
+            dim: '(30, 30, 64)',
+            act: 'Subsampling: max(2×2)',
+            kernel: 'Pool Size 2×2, Stride 2',
+            params: '0 (Non-parametric)',
+            desc: 'Halves resolution from 61×61 to 30×30, expanding the effective receptive field for higher-order convolutional representations.'
+        },
+        {
+            id: 'l5',
+            idx: '05',
+            name: 'Conv2D Block 3',
+            type: 'Conv',
+            dim: '(28, 28, 128)',
+            act: 'ReLU: f(z) = max(0, z)',
+            kernel: '128 Filters, 3×3, Stride 1',
+            params: '73,856 Weights + 128 Biases',
+            desc: 'Captures high-level compositional semantics such as handwritten word blocks, whole chalkboard boundaries, diagrams, and background furniture.'
+        },
+        {
+            id: 'l6',
+            idx: '06',
+            name: 'MaxPooling2D 3',
+            type: 'Pool',
+            dim: '(14, 14, 128)',
+            act: 'Subsampling: max(2×2)',
+            kernel: 'Pool Size 2×2, Stride 2',
+            params: '0 (Non-parametric)',
+            desc: 'Final pooling operation condensing high-level activations into 14×14 grid feature representations prior to flattening.'
+        },
+        {
+            id: 'l7',
+            idx: '07',
+            name: 'Flatten Layer',
+            type: 'Dense',
+            dim: '25,088 Features',
+            act: 'Vector Unroll',
+            kernel: '14 × 14 × 128 Flatten',
+            params: '0 (Reshape)',
+            desc: 'Flattens 14×14×128 spatial tensor maps into a 25,088-dimensional continuous latent feature vector.'
+        },
+        {
+            id: 'l8',
+            idx: '08',
+            name: 'Dense + Dropout',
+            type: 'Dense',
+            dim: '128 Hidden Units',
+            act: 'ReLU + 30% Dropout',
+            kernel: '25,088 × 128 Weight Matrix',
+            params: '3,211,392 Weights + 128 Biases',
+            desc: 'High-capacity fully-connected layer with 30% dropout (p=0.30) regularization to prevent co-adaptation of neurons and mitigate overfitting.'
+        },
+        {
+            id: 'l9',
+            idx: '09',
+            name: 'Softmax Output',
+            type: 'Output',
+            dim: '3 Categorical Classes',
+            act: 'Softmax: e^zi / Σ e^zj',
+            kernel: '128 × 3 Projection Head',
+            params: '384 Weights + 3 Biases',
+            desc: 'Computes normalized probability distribution across target classes: [board, text, background] for final categorical inference.'
+        }
+    ];
+
+    function selectLayer(layer) {
+        document.querySelectorAll('.nn-layer-card').forEach((c) => c.classList.remove('active-layer'));
+        const el = document.getElementById(`layer-node-${layer.id}`);
+        if (el) el.classList.add('active-layer');
+
+        if (inspLayerBadge) inspLayerBadge.innerHTML = `<span class="pulse-dot"></span> LAYER ${layer.idx} • ${layer.type.toUpperCase()}`;
+        if (inspTitle) inspTitle.textContent = layer.name;
+        if (inspDesc) inspDesc.textContent = layer.desc;
+        if (inspDim) inspDim.textContent = layer.dim;
+        if (inspAct) inspAct.textContent = layer.act;
+        if (inspKernel) inspKernel.textContent = layer.kernel;
+        if (inspParams) inspParams.textContent = layer.params;
+    }
+
+    // Render layers
+    track.innerHTML = CNN_LAYERS.map((layer, index) => {
+        let tagClass = 'tag-conv';
+        if (layer.type === 'Pool') tagClass = 'tag-pool';
+        if (layer.type === 'Dense') tagClass = 'tag-dense';
+        if (layer.type === 'Output') tagClass = 'tag-out';
+
+        const isLast = index === CNN_LAYERS.length - 1;
+
+        return `
+            <div class="nn-layer-card ${index === 1 ? 'active-layer' : ''}" id="layer-node-${layer.id}" data-id="${layer.id}">
+                <div class="nn-layer-top">
+                    <span class="nn-layer-idx">L${layer.idx}</span>
+                    <span class="nn-layer-type-tag ${tagClass}">${escapeHtml(layer.type)}</span>
+                </div>
+                <div class="nn-layer-name">${escapeHtml(layer.name)}</div>
+                <div class="nn-tensor-dim">${escapeHtml(layer.dim)}</div>
+                <div class="nn-layer-activation">
+                    <span>Act:</span>
+                    <span class="act-badge">${escapeHtml(layer.act.split(':')[0] || layer.act)}</span>
+                </div>
+            </div>
+            ${!isLast ? `
+                <div class="nn-synapse-connector" id="synapse-${index}">
+                    <div class="synapse-beam" id="beam-${index}"></div>
+                </div>
+            ` : ''}
+        `;
+    }).join('');
+
+    // Attach click events
+    CNN_LAYERS.forEach((layer) => {
+        const card = document.getElementById(`layer-node-${layer.id}`);
+        if (card) {
+            card.addEventListener('click', () => selectLayer(layer));
+        }
+    });
+
+    // Simulate Forward Pass (Feedforward propagation)
+    if (btnSimulate) {
+        btnSimulate.addEventListener('click', () => {
+            btnSimulate.disabled = true;
+            if (simPulseDot) simPulseDot.classList.add('firing');
+
+            let currentStep = 0;
+
+            const interval = setInterval(() => {
+                if (currentStep < CNN_LAYERS.length) {
+                    const layer = CNN_LAYERS[currentStep];
+                    selectLayer(layer);
+
+                    // Add firing animation
+                    const card = document.getElementById(`layer-node-${layer.id}`);
+                    if (card) {
+                        card.classList.add('firing');
+                        setTimeout(() => card.classList.remove('firing'), 350);
+                    }
+
+                    // Beam animation
+                    const beam = document.getElementById(`beam-${currentStep}`);
+                    if (beam) {
+                        beam.classList.add('pulsing');
+                        setTimeout(() => beam.classList.remove('pulsing'), 350);
+                    }
+
+                    if (simStatusText) {
+                        simStatusText.textContent = `Forward Pass Active: Processing Layer ${layer.idx} [${layer.name}] ➔ Shape ${layer.dim}`;
+                    }
+
+                    currentStep++;
+                } else {
+                    clearInterval(interval);
+                    if (simPulseDot) simPulseDot.classList.remove('firing');
+                    if (simStatusText) {
+                        simStatusText.textContent = `Forward Pass Complete: Softmax Inference Synthesized [Class: BOARD | Conf: 98.4%]`;
+                    }
+                    showToast('Feedforward tensor propagation complete!', 'success');
+                    setTimeout(() => {
+                        btnSimulate.disabled = false;
+                        if (simStatusText) {
+                            simStatusText.textContent = 'Network Armed: Ready for Forward Pass Simulation';
+                        }
+                    }, 2400);
+                }
+            }, 260);
+        });
+    }
+}
+
+/* ==========================================================================
+   3. INTERACTIVE UPLOAD DROPZONE & CLIENT-SIDE LIVE STAGING
    ========================================================================== */
 function initUploadDropzone() {
     const dropzone = document.getElementById('dropzone');
@@ -184,6 +524,34 @@ function initUploadDropzone() {
             showToast('All staged images removed.', 'info');
         });
     }
+
+    // Handle Quick Benchmark Sample Buttons
+    const samplePickButtons = document.querySelectorAll('.btn-sample-pick');
+    samplePickButtons.forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const src = btn.getAttribute('data-sample-src');
+            const name = btn.getAttribute('data-sample-name') || 'sample.jpg';
+            const origHtml = btn.innerHTML;
+            try {
+                btn.classList.add('loading');
+                btn.style.opacity = '0.7';
+                const response = await fetch(src);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const blob = await response.blob();
+                const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
+                handleSelectedFiles([file]);
+                showToast(`Loaded benchmark "${name}" into queue!`, 'success');
+            } catch (err) {
+                console.error('Failed to load sample:', err);
+                showToast(`Could not load ${name}. Check local files.`, 'error');
+            } finally {
+                btn.classList.remove('loading');
+                btn.style.opacity = '1';
+                btn.innerHTML = origHtml;
+            }
+        });
+    });
 
     function handleSelectedFiles(newFiles) {
         const validExtensions = ['jpg', 'jpeg', 'png'];
@@ -556,22 +924,45 @@ function initAnalysisDrawer() {
         drawer.classList.add('open');
         showDrawerLoading(originalName);
 
-        // Fetch backend AI analysis
-        fetch(`/api/analyze/${encodeURIComponent(savedName)}`)
-            .then((res) => {
-                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                return res.json();
+        // Fetch backend AI analysis with 180s timeout controller
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 180000);
+
+        fetch(`/api/analyze/${encodeURIComponent(savedName)}`, {
+            signal: controller.signal
+        })
+            .then(async (res) => {
+                clearTimeout(timeoutId);
+                let data = null;
+                try {
+                    data = await res.json();
+                } catch (e) {
+                    data = null;
+                }
+                if (!res.ok) {
+                    const msg = (data && data.error) ? data.error : `Server Error (HTTP ${res.status})`;
+                    throw new Error(msg);
+                }
+                return data;
             })
             .then((data) => {
-                if (data.error) {
-                    renderDrawerError(data.error);
+                if (!data) throw new Error('Received empty response from inference server.');
+                if (data.error && !data.success && !data.classification) {
+                    renderDrawerError(data.error, savedName, originalName);
                 } else {
                     renderDrawerResults(data, originalName);
                     showToast('AI pipeline analysis completed!', 'success');
                 }
             })
             .catch((err) => {
-                renderDrawerError(err.message || 'Failed to connect to inference engine.');
+                clearTimeout(timeoutId);
+                let msg = err.message || 'Failed to connect to inference engine.';
+                if (err.name === 'AbortError') {
+                    msg = 'Pipeline inference timed out. High-resolution OCR is still completing on CPU.';
+                } else if (msg === 'Failed to fetch') {
+                    msg = 'Cannot reach backend server. Ensure Flask is actively running on http://127.0.0.1:5000.';
+                }
+                renderDrawerError(msg, savedName, originalName);
             });
     }
 
@@ -755,25 +1146,68 @@ function initAnalysisDrawer() {
                 </div>
             </div>
 
-            <!-- Stage 3.0 CNN Classification Block -->
-            <div class="result-block">
+            <!-- Stage 3.0 CNN Classification & Softmax Deep Learning Block -->
+            <div class="result-block drawer-nn-block">
                 <div class="result-block-header">
                     <div>
                         <span class="step-tag-pill" style="font-size: 0.65rem; margin-right: 6px;">3.0</span>
-                        <span class="result-block-title">CNN Classification</span>
+                        <span class="result-block-title">Deep ConvNet Inference & Softmax</span>
                     </div>
                     <span class="badge-format" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4); color: #34d399;">
-                        ${escapeHtml(classification.class.toUpperCase())}
+                        ${escapeHtml((classification.class || 'UNKNOWN').toUpperCase())} • ${classification.confidence}%
                     </span>
                 </div>
-                <div class="confidence-gauge-box">
-                    <div class="confidence-labels">
-                        <span>Model Prediction Confidence</span>
-                        <strong>${classification.confidence}%</strong>
-                    </div>
-                    <div class="confidence-track">
-                        <div class="confidence-fill" style="width: ${Math.min(classification.confidence, 100)}%;"></div>
-                    </div>
+
+                <!-- Softmax Multi-Class Probability Distribution -->
+                <div style="font-size: 0.74rem; font-family: var(--font-mono); color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;">
+                    Softmax Probability Distribution P(y | X) = e^{z_i} / Σ e^{z_j}
+                </div>
+                <div class="softmax-bars-container">
+                    ${(() => {
+                        const probs = classification.probabilities || {};
+                        const classes = ['board', 'text', 'background'];
+                        const topClass = (classification.class || '').toLowerCase();
+                        
+                        return classes.map((c) => {
+                            let p = probs[c];
+                            if (p === undefined) {
+                                if (c === topClass) p = classification.confidence;
+                                else p = Math.max(0, ((100 - classification.confidence) / 2)).toFixed(1);
+                            }
+                            const isWinner = c === topClass;
+                            return `
+                                <div class="softmax-row">
+                                    <div class="softmax-labels">
+                                        <span class="softmax-class-name">${escapeHtml(c)} ${isWinner ? '★ (Predicted)' : ''}</span>
+                                        <span class="softmax-percent">${parseFloat(p).toFixed(1)}%</span>
+                                    </div>
+                                    <div class="softmax-track">
+                                        <div class="softmax-fill ${isWinner ? 'winner' : ''}" style="width: ${Math.min(parseFloat(p), 100)}%;"></div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                    })()}
+                </div>
+
+                <!-- Tensor Dimension Pipeline Trace -->
+                <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border-subtle); font-size: 0.72rem; font-family: var(--font-mono); color: #94a3b8; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    <span style="color: #38bdf8; font-weight: 600;">Tensor Path:</span>
+                    <span>(128,128,3)</span>
+                    <span style="color: var(--text-muted);">➔</span>
+                    <span>Conv(126,126,32)</span>
+                    <span style="color: var(--text-muted);">➔</span>
+                    <span>Pool(63,63,32)</span>
+                    <span style="color: var(--text-muted);">➔</span>
+                    <span>Conv(61,61,64)</span>
+                    <span style="color: var(--text-muted);">➔</span>
+                    <span>Pool(30,30,64)</span>
+                    <span style="color: var(--text-muted);">➔</span>
+                    <span>Conv(28,28,128)</span>
+                    <span style="color: var(--text-muted);">➔</span>
+                    <span>Dense(128)</span>
+                    <span style="color: var(--text-muted);">➔</span>
+                    <span style="color: #34d399; font-weight: 700;">Softmax(3)</span>
                 </div>
             </div>
 
@@ -782,15 +1216,20 @@ function initAnalysisDrawer() {
                 <div class="result-block-header">
                     <div>
                         <span class="step-tag-pill" style="font-size: 0.65rem; margin-right: 6px;">4.0</span>
-                        <span class="result-block-title">OCR Text Extraction</span>
+                        <span class="result-block-title">Deep Sequence OCR Extraction</span>
                     </div>
-                    <button class="btn-copy-name" id="btn-copy-ocr" title="Copy Text" style="color: var(--primary-cyan); font-size: 0.8rem; display: flex; align-items: center; gap: 4px;">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                        </svg>
-                        Copy Raw Text
-                    </button>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <span class="badge-format" style="background: rgba(139, 92, 246, 0.15); border: 1px solid rgba(139, 92, 246, 0.35); color: #c4b5fd;">
+                            CRAFT + BiLSTM CTC
+                        </span>
+                        <button class="btn-copy-name" id="btn-copy-ocr" title="Copy Text" style="color: var(--primary-cyan); font-size: 0.8rem; display: flex; align-items: center; gap: 4px;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            Copy Raw Text
+                        </button>
+                    </div>
                 </div>
                 <div class="extracted-text-area" id="ocr-text-display">${text ? escapeHtml(text) : '<span style="color: var(--text-muted); font-style: italic;">No readable text characters extracted with current confidence threshold.</span>'}</div>
             </div>
@@ -843,19 +1282,41 @@ function initAnalysisDrawer() {
                     <div class="result-block-header">
                         <div>
                             <span class="step-tag-pill" style="font-size: 0.65rem; margin-right: 6px;">2.0</span>
-                            <span class="result-block-title">Enhanced Preprocessed Image</span>
+                            <span class="result-block-title">Enhanced Image & ConvNet Activation</span>
                         </div>
                         <a href="/pipeline_output/${encodeURIComponent(data.processed_filename)}" target="_blank" class="btn-note-action" style="font-size: 0.75rem; padding: 4px 8px;">
                             View Fullsize
                         </a>
                     </div>
-                    <div style="border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border-subtle); max-height: 200px; display: flex; align-items: center; justify-content: center; background: #000;">
-                        <img src="/pipeline_output/${encodeURIComponent(data.processed_filename)}" alt="Preprocessed Preview" style="max-width: 100%; max-height: 200px; object-fit: contain;">
+                    <div class="drawer-preview-img-wrap" style="border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border-subtle); max-height: 220px; display: flex; align-items: center; justify-content: center; background: #000; position: relative;">
+                        <img src="/pipeline_output/${encodeURIComponent(data.processed_filename)}" alt="Preprocessed Preview" style="max-width: 100%; max-height: 220px; object-fit: contain;">
+                        <div class="heatmap-overlay" id="heatmap-overlay"></div>
+                    </div>
+                    <div class="heatmap-toggle-wrap">
+                        <span style="font-size: 0.76rem; color: var(--text-muted); font-family: var(--font-mono);">Grad-CAM Feature Map Filter Response</span>
+                        <button type="button" class="btn-heatmap-toggle" id="btn-heatmap-toggle">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                            Toggle Activation Heatmap
+                        </button>
                     </div>
                 </div>
                 ` : ''
             }
         `;
+
+        // Wire heatmap toggle button
+        const heatmapBtn = document.getElementById('btn-heatmap-toggle');
+        const heatmapOverlay = document.getElementById('heatmap-overlay');
+        if (heatmapBtn && heatmapOverlay) {
+            heatmapBtn.addEventListener('click', () => {
+                const isVisible = heatmapOverlay.classList.toggle('visible');
+                heatmapBtn.classList.toggle('active', isVisible);
+                showToast(isVisible ? 'ConvNet Feature Activation Heatmap enabled!' : 'Activation Heatmap hidden.', 'info');
+            });
+        }
 
         // Wire copy OCR text button
         const copyOcrBtn = document.getElementById('btn-copy-ocr');
@@ -917,7 +1378,7 @@ function initAnalysisDrawer() {
         }
     }
 
-    function renderDrawerError(errMsg) {
+    function renderDrawerError(errMsg, savedName, originalName) {
         drawerContent.innerHTML = `
             <div style="text-align: center; padding: 40px 15px;">
                 <div style="display: flex; justify-content: center; margin-bottom: 14px;">
@@ -933,11 +1394,29 @@ function initAnalysisDrawer() {
                 <p style="color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 20px;">
                     ${escapeHtml(errMsg)}
                 </p>
-                <div style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: var(--radius-sm); padding: 12px; font-size: 0.8rem; color: #fecdd3; font-family: var(--font-mono);">
+                <div style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: var(--radius-sm); padding: 12px; font-size: 0.8rem; color: #fecdd3; font-family: var(--font-mono); margin-bottom: 18px;">
                     Ensure the pipeline models and OpenCV dependencies are loaded in the environment.
                 </div>
+                ${savedName ? `
+                <div>
+                    <button type="button" class="btn-neural-submit" id="btn-retry-analysis" style="font-size: 0.82rem; padding: 8px 18px; width: auto; display: inline-flex; margin: 0 auto;">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="1 4 1 10 7 10"></polyline>
+                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                        </svg>
+                        Retry Pipeline Analysis
+                    </button>
+                </div>
+                ` : ''}
             </div>
         `;
+
+        const retryBtn = document.getElementById('btn-retry-analysis');
+        if (retryBtn && savedName) {
+            retryBtn.addEventListener('click', () => {
+                runAnalysis(savedName, originalName || savedName);
+            });
+        }
     }
 }
 

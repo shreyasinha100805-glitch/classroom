@@ -1,3 +1,6 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 from flask import (
     Flask,
     render_template,
@@ -6,8 +9,6 @@ from flask import (
     jsonify,
     Response
 )
-
-import os
 from werkzeug.utils import secure_filename
 from uuid import uuid4
 from PIL import Image
@@ -238,13 +239,13 @@ def api_analyze_image(filename):
     safe_name = secure_filename(filename)
     image_path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
     if not os.path.exists(image_path):
-        return {"success": False, "error": "Image file not found on server."}, 404
+        return jsonify({"success": False, "error": "Image file not found on server."}), 404
 
     try:
         result = run_pipeline_data(image_path)
         return jsonify(result)
     except Exception as exc:
-        return {"success": False, "error": str(exc)}, 500
+        return jsonify({"success": False, "error": str(exc)}), 500
 
 
 # ============================================

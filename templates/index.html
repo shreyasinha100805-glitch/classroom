@@ -38,11 +38,21 @@
                         </svg>
                     </div>
                     <div class="brand-text">
-                        Board<span>AI</span>
+                        Board<span>AI</span><span class="brand-sub-badge">NN/DL Lab</span>
                     </div>
                 </a>
 
                 <div class="nav-links">
+                    <a href="#nn-architecture" class="nav-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="18" cy="5" r="3"></circle>
+                            <circle cx="6" cy="12" r="3"></circle>
+                            <circle cx="18" cy="19" r="3"></circle>
+                            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                        </svg>
+                        NN & DL Architecture
+                    </a>
                     <a href="#pipeline-section" class="nav-btn">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
@@ -51,7 +61,7 @@
                     </a>
                     <div class="nav-status-badge">
                         <span class="pulse-dot"></span>
-                        AI Engine Online
+                        Keras CNN & BiLSTM Online
                     </div>
                     <a href="/results" class="nav-btn">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -71,7 +81,7 @@
             <section class="hero-section">
                 <div class="pill-announcement">
                     <span class="pill-sparkle">✦</span>
-                    Multimodal Deep Vision & OCR Pipeline
+                    Neural Networks & Deep Learning (NN/DL) Multimodal Pipeline
                 </div>
 
                 <h1 class="hero-title">
@@ -79,8 +89,16 @@
                 </h1>
 
                 <p class="hero-subtitle">
-                    Transform raw blackboard, chalkboard, and whiteboard photos into structured, actionable study notes using a unified 6-stage deep convolutional, optical recognition, and natural language understanding architecture.
+                    Transform raw blackboard, chalkboard, and whiteboard photos into structured study notes using a unified deep learning architecture — featuring Convolutional Neural Networks (CNN), Recurrent Sequence OCR (CRAFT + BiLSTM), and Natural Language Semantic Modeling.
                 </p>
+
+                <div class="neural-math-pills">
+                    <span class="math-pill" title="Convolutional Tensor Operation"><span class="math-accent">Conv2D:</span> (W * K)(i,j)</span>
+                    <span class="math-pill" title="Rectified Linear Unit Activation"><span class="math-accent">ReLU:</span> max(0, z)</span>
+                    <span class="math-pill" title="Softmax Multiclass Output Distribution"><span class="math-accent">Softmax:</span> e^{z_i} / Σ e^{z_j}</span>
+                    <span class="math-pill" title="Sparse Categorical Cross-Entropy Objective"><span class="math-accent">Loss:</span> -Σ y_i log(p_i)</span>
+                    <span class="math-pill" title="Adaptive Moment Estimation Optimizer"><span class="math-accent">Optimizer:</span> Adam (lr=1e-3)</span>
+                </div>
             </section>
 
             <!-- Main Upload Form Panel (Stage 1.0 Entry) -->
@@ -129,6 +147,31 @@
                         </div>
                     </div>
 
+                    <!-- Quick Benchmark Sample Picker -->
+                    <div class="sample-picker-bar">
+                        <div class="sample-picker-label">
+                            <span class="sample-picker-pulse"></span>
+                            <span>Quick Benchmark Snapshots:</span>
+                        </div>
+                        <div class="sample-picker-buttons">
+                            <button type="button" class="btn-sample-pick" data-sample-src="/samples/sample_board.jpg" data-sample-name="sample_board.jpg">
+                                <span class="sample-btn-icon">📐</span>
+                                <span>Chalkboard Equations</span>
+                                <span class="sample-tag">Board</span>
+                            </button>
+                            <button type="button" class="btn-sample-pick" data-sample-src="/samples/sample_diagram.jpg" data-sample-name="sample_diagram.jpg">
+                                <span class="sample-btn-icon">📊</span>
+                                <span>Architecture Diagram</span>
+                                <span class="sample-tag">Diagram</span>
+                            </button>
+                            <button type="button" class="btn-sample-pick" data-sample-src="/samples/sample_text.jpg" data-sample-name="sample_text.jpg">
+                                <span class="sample-btn-icon">📝</span>
+                                <span>Handwritten Notes</span>
+                                <span class="sample-tag">Text</span>
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Client-Side Live Staging Area (Previews before upload) -->
                     <div class="staging-area" id="staging-area">
                         <div class="staging-header">
@@ -166,6 +209,323 @@
                 </form>
             </div>
 
+            <!-- ========================================================
+                 NEURAL NETWORKS & DEEP LEARNING (NN/DL) ARCHITECTURE SECTION
+                 ======================================================== -->
+            <section class="nn-architecture-section" id="nn-architecture">
+                <div class="nn-section-top">
+                    <div class="nn-section-titles">
+                        <div class="pill-announcement" style="margin-bottom: 10px;">
+                            <span class="pill-sparkle">🧠</span>
+                            Deep Learning Model Blueprint & Telemetry
+                        </div>
+                        <h2>Neural Networks & Deep Learning Architecture</h2>
+                        <p>
+                            Explore the internal convolutional tensor pipeline, bidirectional recurrent OCR recognizer, and training hyperparameters engineered for classroom board interpretation.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Deep Learning Telemetry HUD -->
+                <div class="nn-telemetry-grid">
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Input Tensor</span>
+                        <span class="telemetry-value cyan">(128, 128, 3) RGB</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">ConvNet Backbone</span>
+                        <span class="telemetry-value">3× Conv2D Blocks</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Total Parameters</span>
+                        <span class="telemetry-value emerald">~3,248,387</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Optimizer & LR</span>
+                        <span class="telemetry-value violet">Adam (η = 1e-3)</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Loss Function</span>
+                        <span class="telemetry-value amber">Sparse CrossEntropy</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Deep OCR Engine</span>
+                        <span class="telemetry-value cyan">CRAFT + BiLSTM</span>
+                    </div>
+                </div>
+
+                <!-- Navigation Tabs -->
+                <div class="nn-tabs-bar">
+                    <button type="button" class="nn-tab-btn active" data-tab="tab-cnn">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="2" width="8" height="8" rx="2"></rect>
+                            <rect x="14" y="2" width="8" height="8" rx="2"></rect>
+                            <rect x="14" y="14" width="8" height="8" rx="2"></rect>
+                            <rect x="2" y="14" width="8" height="8" rx="2"></rect>
+                        </svg>
+                        Convolutional Pipeline (CNN)
+                    </button>
+                    <button type="button" class="nn-tab-btn" data-tab="tab-ocr">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="4 7 4 4 20 4 20 7"></polyline>
+                            <line x1="9" y1="20" x2="15" y2="20"></line>
+                            <line x1="12" y1="4" x2="12" y2="20"></line>
+                        </svg>
+                        Deep Sequence OCR (BiLSTM)
+                    </button>
+                    <button type="button" class="nn-tab-btn" data-tab="tab-nlp">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                        </svg>
+                        NLP Semantic Embeddings
+                    </button>
+                    <button type="button" class="nn-tab-btn" data-tab="tab-hyperparams">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                        </svg>
+                        Training & Hyperparameter Matrix
+                    </button>
+                </div>
+
+                <!-- TAB 1: ConvNet Architecture Visualizer -->
+                <div class="nn-tab-pane active" id="tab-cnn">
+                    <!-- Simulation Action Bar -->
+                    <div class="nn-forward-sim-bar">
+                        <div class="sim-status-group">
+                            <span class="sim-pulse-dot" id="sim-pulse-dot"></span>
+                            <span id="sim-status-text">Network Armed: Ready for Forward Pass Simulation</span>
+                        </div>
+                        <button type="button" class="btn-simulate-forward" id="btn-simulate-forward">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                            </svg>
+                            Simulate Forward Pass (Feedforward)
+                        </button>
+                    </div>
+
+                    <!-- Interactive Layer Sequence Scroll Track -->
+                    <div class="nn-pipeline-wrapper">
+                        <div class="nn-layers-scroll-track" id="nn-layers-track">
+                            <!-- Populated dynamically via script.js -->
+                        </div>
+                    </div>
+
+                    <!-- Technical Layer Inspector Card -->
+                    <div class="layer-inspector-panel" id="layer-inspector-panel">
+                        <div class="inspector-headline">
+                            <div class="inspector-layer-badge" id="insp-layer-badge">
+                                <span class="pulse-dot"></span> LAYER 01 • CONV2D
+                            </div>
+                            <h3 class="inspector-title" id="insp-title">Conv2D Block 1 (32 Filters)</h3>
+                            <p class="inspector-desc" id="insp-desc">
+                                Convolves 32 learned 3×3 spatial kernels across the normalized RGB image tensor to extract primitive classroom low-level features such as chalk strokes, board borders, and contrast gradients.
+                            </p>
+                        </div>
+                        <div class="inspector-specs-grid">
+                            <div class="inspector-spec-card">
+                                <div class="spec-key">Tensor Transformation</div>
+                                <div class="spec-val" id="insp-dim">(128, 128, 3) ➔ (126, 126, 32)</div>
+                            </div>
+                            <div class="inspector-spec-card">
+                                <div class="spec-key">Activation Formula</div>
+                                <div class="spec-val" id="insp-act">ReLU: f(z) = max(0, z)</div>
+                            </div>
+                            <div class="inspector-spec-card">
+                                <div class="spec-key">Kernel & Receptive Field</div>
+                                <div class="spec-val" id="insp-kernel">3×3 Filter, Stride 1</div>
+                            </div>
+                            <div class="inspector-spec-card">
+                                <div class="spec-key">Trainable Parameters</div>
+                                <div class="spec-val" id="insp-params">896 Weights + 32 Biases</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: Deep Sequence OCR Architecture -->
+                <div class="nn-tab-pane" id="tab-ocr">
+                    <div class="deep-architecture-grid">
+                        <div class="deep-arch-card">
+                            <div class="deep-arch-header">
+                                <div class="deep-arch-icon">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                        <line x1="9" y1="9" x2="15" y2="9"></line>
+                                        <line x1="9" y1="15" x2="15" y2="15"></line>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 class="deep-arch-title">CRAFT Text Detector</h4>
+                                    <span class="deep-arch-subtitle">Character Region Awareness Network</span>
+                                </div>
+                            </div>
+                            <p class="deep-arch-body">
+                                Employs a fully convolutional neural network with VGG-16 backbone to generate dual affinity heatmaps, identifying individual character centers and spatial affinities between consecutive handwritten letters.
+                            </p>
+                            <div class="deep-steps-flow">
+                                <div class="deep-step-item"><span class="step-node-dot"></span> VGG-16 Backbone Feature Extraction</div>
+                                <div class="deep-step-item"><span class="step-node-dot"></span> Region Score & Affinity Score Heatmaps</div>
+                                <div class="deep-step-item"><span class="step-node-dot"></span> Bounding Polygon Extraction</div>
+                            </div>
+                        </div>
+
+                        <div class="deep-arch-card">
+                            <div class="deep-arch-header">
+                                <div class="deep-arch-icon" style="background: rgba(6, 182, 212, 0.15); border-color: rgba(6, 182, 212, 0.3); color: #22d3ee;">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 class="deep-arch-title">Bidirectional LSTM Sequencer</h4>
+                                    <span class="deep-arch-subtitle">Recurrent Sequential Character Modeling</span>
+                                </div>
+                            </div>
+                            <p class="deep-arch-body">
+                                The cropped text features flow through stacked BiLSTM layers that capture contextual letter dependencies in both forward and backward temporal directions, eliminating ambiguity in cursive board handwriting.
+                            </p>
+                            <div class="deep-steps-flow">
+                                <div class="deep-step-item"><span class="step-node-dot"></span> Forward & Backward Hidden State Vectors</div>
+                                <div class="deep-step-item"><span class="step-node-dot"></span> Temporal Context Preservation</div>
+                                <div class="deep-step-item"><span class="step-node-dot"></span> 256 Recurrent Hidden Units per Step</div>
+                            </div>
+                        </div>
+
+                        <div class="deep-arch-card">
+                            <div class="deep-arch-header">
+                                <div class="deep-arch-icon" style="background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.3); color: #34d399;">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 class="deep-arch-title">CTC Loss Sequence Decoder</h4>
+                                    <span class="deep-arch-subtitle">Connectionist Temporal Classification</span>
+                                </div>
+                            </div>
+                            <p class="deep-arch-body">
+                                CTC resolves variable-length handwriting sequences without requiring character-level ground truth segmentation. A greedy beam-search merges repeated tokens and eliminates blanks to produce the final string.
+                            </p>
+                            <div class="deep-steps-flow">
+                                <div class="deep-step-item"><span class="step-node-dot"></span> Blank Token Collapsing & Repetition Filtering</div>
+                                <div class="deep-step-item"><span class="step-node-dot"></span> Softmax Character Vocabulary Probability</div>
+                                <div class="deep-step-item"><span class="step-node-dot"></span> Minimum Confidence Threshold Filtering (≥0.40)</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 3: NLP Semantic Embeddings -->
+                <div class="nn-tab-pane" id="tab-nlp">
+                    <div class="deep-architecture-grid">
+                        <div class="deep-arch-card">
+                            <div class="deep-arch-header">
+                                <div class="deep-arch-icon" style="background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.3); color: #fbbf24;">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                                        <polyline points="2 17 12 22 22 17"></polyline>
+                                        <polyline points="2 12 12 17 22 12"></polyline>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 class="deep-arch-title">TF-IDF Vector Space Embeddings</h4>
+                                    <span class="deep-arch-subtitle">Term Frequency Inverse Document Weighting</span>
+                                </div>
+                            </div>
+                            <p class="deep-arch-body">
+                                Transforms raw extracted OCR tokens into a normalized vector space, weighting domain-specific lecture keywords while eliminating conversational stopwords and non-informative filler vocabulary.
+                            </p>
+                            <div class="deep-steps-flow">
+                                <div class="deep-step-item"><span class="step-node-dot"></span> Tokenization & Regular Expression Cleansing</div>
+                                <div class="deep-step-item"><span class="step-node-dot"></span> N-gram Weighting: w(t, d) = tf(t, d) × log(N / df(t))</div>
+                                <div class="deep-step-item"><span class="step-node-dot"></span> Top Academic Keywords Extraction</div>
+                            </div>
+                        </div>
+
+                        <div class="deep-arch-card">
+                            <div class="deep-arch-header">
+                                <div class="deep-arch-icon" style="background: rgba(244, 63, 94, 0.15); border-color: rgba(244, 63, 94, 0.3); color: #fb7185;">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"></circle>
+                                        <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 class="deep-arch-title">Academic Domain Taxonomy</h4>
+                                    <span class="deep-arch-subtitle">Multiclass Curriculum Classifier</span>
+                                </div>
+                            </div>
+                            <p class="deep-arch-body">
+                                Matches vector clusters against formal university course syllabi categories, identifying whether board content corresponds to Artificial Intelligence, Mathematics, Physics, Electronics, or Computer Networks.
+                            </p>
+                            <div class="deep-steps-flow">
+                                <div class="deep-step-item"><span class="step-node-dot"></span> Taxonomy Distance Metric & Clustering</div>
+                                <div class="deep-step-item"><span class="step-node-dot"></span> Multi-Topic Matching with Ranked Confidence</div>
+                                <div class="deep-step-item"><span class="step-node-dot"></span> Automated Lecture Module Tagging</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 4: Training & Hyperparameter Matrix -->
+                <div class="nn-tab-pane" id="tab-hyperparams">
+                    <div style="background: rgba(13, 19, 34, 0.7); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 22px; overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.84rem; color: #cbd5e1;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.1); text-align: left; color: #a5b4fc;">
+                                    <th style="padding: 10px 14px;">Hyperparameter</th>
+                                    <th style="padding: 10px 14px;">Configured Value</th>
+                                    <th style="padding: 10px 14px;">Mathematical Role / Description</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <td style="padding: 12px 14px; font-weight: 600; color: #fff;">Framework & API</td>
+                                    <td style="padding: 12px 14px; color: #38bdf8;">TensorFlow 2.x / Keras</td>
+                                    <td style="padding: 12px 14px; color: var(--text-secondary);">Sequential Deep Neural Network Model (`classroom_cnn.keras`)</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <td style="padding: 12px 14px; font-weight: 600; color: #fff;">Input Dimension</td>
+                                    <td style="padding: 12px 14px; color: #38bdf8;">(128, 128, 3)</td>
+                                    <td style="padding: 12px 14px; color: var(--text-secondary);">Normalized RGB spatial pixel matrix scaled by 1/255.0</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <td style="padding: 12px 14px; font-weight: 600; color: #fff;">Batch Size</td>
+                                    <td style="padding: 12px 14px; color: #34d399;">8 Samples / Batch</td>
+                                    <td style="padding: 12px 14px; color: var(--text-secondary);">Mini-batch gradient descent balancing memory and gradient stability</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <td style="padding: 12px 14px; font-weight: 600; color: #fff;">Epochs</td>
+                                    <td style="padding: 12px 14px; color: #34d399;">20 Epochs</td>
+                                    <td style="padding: 12px 14px; color: var(--text-secondary);">Full passes through training data with validation loss monitoring</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <td style="padding: 12px 14px; font-weight: 600; color: #fff;">Optimizer</td>
+                                    <td style="padding: 12px 14px; color: #a78bfa;">Adam (Adaptive Moment)</td>
+                                    <td style="padding: 12px 14px; color: var(--text-secondary);">β₁ = 0.9, β₂ = 0.999, ε = 1e-7, adaptive learning rate</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <td style="padding: 12px 14px; font-weight: 600; color: #fff;">Objective Loss</td>
+                                    <td style="padding: 12px 14px; color: #fb7185;">Sparse Categorical Cross-Entropy</td>
+                                    <td style="padding: 12px 14px; color: var(--text-secondary);">L = -log(P(y_true | X)) for multi-class categorical labels</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                                    <td style="padding: 12px 14px; font-weight: 600; color: #fff;">Regularization</td>
+                                    <td style="padding: 12px 14px; color: #fbbf24;">Dropout (p = 0.30)</td>
+                                    <td style="padding: 12px 14px; color: var(--text-secondary);">Randomly zeroes 30% of dense activations to prevent co-adaptation</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 12px 14px; font-weight: 600; color: #fff;">Target Output Classes</td>
+                                    <td style="padding: 12px 14px; color: #38bdf8;">3 Classes</td>
+                                    <td style="padding: 12px 14px; color: var(--text-secondary);">`board` (chalkboard/whiteboard), `text` (pure writing), `background`</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
             <!-- Complete 6.0 System Pipeline Process Architecture Section -->
             <section class="pipeline-architecture-section" id="pipeline-section">
                 <div class="section-header-centered">
@@ -194,9 +554,9 @@
                             </svg>
                         </div>
                         <h3 class="process-title">1.0 Image Upload & Validation</h3>
-                        <p class="process-desc">User uploads the classroom-board image.</p>
+                        <p class="process-desc">User uploads the classroom-board image. Input tensor verification & pixel boundary integrity.</p>
                         <div class="process-meta-footer">
-                            <span class="process-pill-tech">PNG / JPG Format</span>
+                            <span class="process-pill-tech">(H × W × 3) RGB</span>
                             <span class="process-pill-tech">Integrity Check</span>
                         </div>
                     </div>
@@ -215,18 +575,18 @@
                             </svg>
                         </div>
                         <h3 class="process-title">2.0 Image Preprocessing</h3>
-                        <p class="process-desc">The image is resized, denoised, enhanced and sharpened.</p>
+                        <p class="process-desc">The image is resized, denoised, enhanced and sharpened to optimize neural receptive field contrast.</p>
                         <div class="process-meta-footer">
-                            <span class="process-pill-tech">Bilateral Denoise</span>
                             <span class="process-pill-tech">CLAHE Contrast</span>
+                            <span class="process-pill-tech">Bilateral Denoise</span>
                         </div>
                     </div>
 
                     <!-- 3.0 CNN Classification -->
-                    <div class="process-card">
+                    <div class="process-card highlight-card">
                         <div class="process-card-header">
                             <div class="process-step-badge emerald">3.0</div>
-                            <span class="process-tag emerald">Stage 3</span>
+                            <span class="process-tag emerald">Deep Learning</span>
                         </div>
                         <div class="process-icon-box emerald">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -241,18 +601,18 @@
                             </svg>
                         </div>
                         <h3 class="process-title">3.0 CNN Classification</h3>
-                        <p class="process-desc">The CNN identifies the type of image/content such as board, text or background.</p>
+                        <p class="process-desc">The CNN identifies the type of image/content such as board, text or background via 3 Conv2D layers & Softmax.</p>
                         <div class="process-meta-footer">
-                            <span class="process-pill-tech">Deep ConvNet</span>
-                            <span class="process-pill-tech">Softmax Inference</span>
+                            <span class="process-pill-tech">3× Conv2D + ReLU</span>
+                            <span class="process-pill-tech">Softmax Head</span>
                         </div>
                     </div>
 
                     <!-- 4.0 OCR Text Extraction -->
-                    <div class="process-card">
+                    <div class="process-card highlight-card">
                         <div class="process-card-header">
                             <div class="process-step-badge violet">4.0</div>
-                            <span class="process-tag violet">Stage 4</span>
+                            <span class="process-tag violet">Deep Sequence</span>
                         </div>
                         <div class="process-icon-box violet">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -262,10 +622,10 @@
                             </svg>
                         </div>
                         <h3 class="process-title">4.0 OCR Text Extraction</h3>
-                        <p class="process-desc">OCR reads and extracts text from the classroom image.</p>
+                        <p class="process-desc">OCR reads and extracts handwritten and printed text using CRAFT region heatmaps and BiLSTM sequence decoding.</p>
                         <div class="process-meta-footer">
-                            <span class="process-pill-tech">EasyOCR Deep Reader</span>
-                            <span class="process-pill-tech">Text Coordinates</span>
+                            <span class="process-pill-tech">CRAFT Detector</span>
+                            <span class="process-pill-tech">BiLSTM + CTC</span>
                         </div>
                     </div>
 
@@ -273,7 +633,7 @@
                     <div class="process-card">
                         <div class="process-card-header">
                             <div class="process-step-badge amber">5.0</div>
-                            <span class="process-tag amber">Stage 5</span>
+                            <span class="process-tag amber">Semantic NLP</span>
                         </div>
                         <div class="process-icon-box amber">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -283,10 +643,10 @@
                             </svg>
                         </div>
                         <h3 class="process-title">5.0 NLP Analysis</h3>
-                        <p class="process-desc">The extracted text is analyzed to identify important keywords and topics.</p>
+                        <p class="process-desc">The extracted text is analyzed to identify key academic terminology, lexical frequency, and curriculum topics.</p>
                         <div class="process-meta-footer">
-                            <span class="process-pill-tech">Frequency Filtering</span>
-                            <span class="process-pill-tech">Subject Taxonomy</span>
+                            <span class="process-pill-tech">TF-IDF Vectorizer</span>
+                            <span class="process-pill-tech">Domain Taxonomy</span>
                         </div>
                     </div>
 
@@ -294,7 +654,7 @@
                     <div class="process-card highlight-card">
                         <div class="process-card-header">
                             <div class="process-step-badge rose">6.0</div>
-                            <span class="process-tag rose">Stage 6</span>
+                            <span class="process-tag rose">Knowledge Synthesis</span>
                         </div>
                         <div class="process-icon-box rose">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -306,7 +666,7 @@
                             </svg>
                         </div>
                         <h3 class="process-title">6.0 Structured Notes Generation</h3>
-                        <p class="process-desc">The system combines the extracted information and generates organized notes for the user.</p>
+                        <p class="process-desc">The system combines extracted classifications, transcripts, and concepts into organized notes for students.</p>
                         <div class="process-meta-footer">
                             <span class="process-pill-tech">Markdown & Text</span>
                             <span class="process-pill-tech">One-Click Export</span>
