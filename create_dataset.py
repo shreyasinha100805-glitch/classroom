@@ -195,7 +195,7 @@ for image_number, filename in enumerate(
             if success:
 
                 print(
-                    f"[✓] Created {output_filename}"
+                    f"[[OK]] Created {output_filename}"
                 )
 
             else:

@@ -136,7 +136,7 @@ for index, filename in enumerate(
 
 
         print(
-            f"[✓] {filename}"
+            f"[[OK]] {filename}"
         )
 
         print(

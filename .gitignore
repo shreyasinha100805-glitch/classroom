@@ -12,3 +12,6 @@ dataset_old/
 crop_preview.jpg
 *.db
 database.db
+.env
+.env.local
+model_cache/

@@ -3,9 +3,9 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import tempfile
 from PIL import Image
 
-PIPELINE_OUTPUT_FOLDER = os.path.join(
-    tempfile.gettempdir() if os.environ.get("VERCEL") else ".",
-    "pipeline_output"
+PIPELINE_OUTPUT_FOLDER = os.environ.get(
+    "PIPELINE_OUTPUT_FOLDER",
+    os.path.join(tempfile.gettempdir() if os.environ.get("VERCEL") else ".", "pipeline_output")
 )
 
 
@@ -117,7 +117,7 @@ def run_pipeline(image_path: str):
         print(f"ERROR: {val_result['error']}")
         return
 
-    print(f"✓ Validated: {val_result['filename']} ({val_result['width']}x{val_result['height']}, {val_result['format']}, {val_result['size_bytes']} bytes)")
+    print(f"[OK] Validated: {val_result['filename']} ({val_result['width']}x{val_result['height']}, {val_result['format']}, {val_result['size_bytes']} bytes)")
     print()
 
     # -------------------------------------------------------------------------
@@ -131,7 +131,7 @@ def run_pipeline(image_path: str):
 
     try:
         preprocess_image(image_path, processed_path)
-        print("✓ Preprocessed output saved to:", processed_path)
+        print("[OK] Preprocessed output saved to:", processed_path)
     except Exception as error:
         print("ERROR in Preprocessing:", error)
         return
@@ -147,8 +147,8 @@ def run_pipeline(image_path: str):
     predicted_class = cnn_result["class"]
     confidence = cnn_result["confidence"]
 
-    print(f"✓ Predicted Content Type: {predicted_class.upper()}")
-    print(f"✓ Confidence: {confidence * 100:.2f}%")
+    print(f"[OK] Predicted Content Type: {predicted_class.upper()}")
+    print(f"[OK] Confidence: {confidence * 100:.2f}%")
     print()
 
     # -------------------------------------------------------------------------

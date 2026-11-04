@@ -9,9 +9,9 @@ An end-to-end intelligent multimodal pipeline designed to ingest classroom-board
 The project implements the following 6 core sequential processes:
 
 ```
-[ User Image ]
-      │
-      ▼
+[ User Image / Phone Upload ]
+              │
+              ▼
 ┌────────────────────────────────────────────────────────┐
 │ 1.0 Image Upload & Validation                          │
 │ User uploads the classroom-board image.                │
@@ -22,7 +22,7 @@ The project implements the following 6 core sequential processes:
 ┌────────────────────────────────────────────────────────┐
 │ 2.0 Image Preprocessing                                │
 │ The image is resized, denoised, enhanced & sharpened.  │
-│ Bilateral denoising, CLAHE contrast, Gaussian unsharp. │
+│ Fast non-local means, adaptive CLAHE, unsharp masking. │
 └──────────────────────────┬─────────────────────────────┘
                            │
                            ▼
@@ -35,7 +35,7 @@ The project implements the following 6 core sequential processes:
                            ▼
 ┌────────────────────────────────────────────────────────┐
 │ 4.0 OCR Text Extraction                                │
-│ OCR reads and extracts text from the classroom image.  │
+│ EasyOCR reads and extracts text from the board image.  │
 │ Deep learning character recognition & bounding boxes.  │
 └──────────────────────────┬─────────────────────────────┘
                            │
@@ -43,7 +43,7 @@ The project implements the following 6 core sequential processes:
 ┌────────────────────────────────────────────────────────┐
 │ 5.0 NLP Analysis                                       │
 │ The extracted text is analyzed to identify important   │
-│ keywords and topics.                                   │
+│ keywords and academic subject topics.                  │
 └──────────────────────────┬─────────────────────────────┘
                            │
                            ▼
@@ -60,87 +60,71 @@ The project implements the following 6 core sequential processes:
 
 ---
 
-## 📋 Process Details
+## 🌐 Production Deployment Architecture
 
-### 1. 1.0 Image Upload & Validation
-- **Action**: User uploads the classroom-board image.
-- **Implementation**: Multi-batch upload dropzone supporting PNG, JPG, and JPEG. Files undergo PIL/OpenCV image header verification, resolution measurement, and integrity checks before pipeline entry.
+Because deep learning frameworks (TensorFlow + PyTorch + EasyOCR models) exceed serverless size limits (~250MB), the application utilizes a high-performance decoupled/hybrid architecture:
 
-### 2. 2.0 Image Preprocessing
-- **Action**: The image is resized, denoised, enhanced and sharpened.
-- **Implementation**:
-  - Image scaling to optimal recognition width.
-  - Grayscale conversion.
-  - Non-local means denoising (`fastNlMeansDenoising`) to remove chalk/marker glare and dust noise.
-  - Contrast Limited Adaptive Histogram Equalization (`CLAHE`) to heighten text contrast.
-  - Gaussian blur unsharp masking for crisp text edges.
-
-### 3. 3.0 CNN Classification
-- **Action**: The CNN identifies the type of image/content such as board, text or background.
-- **Implementation**: Deep Convolutional Neural Network trained on classroom captures (`classroom_cnn.keras`), providing categorical classification (`board`, `text`, `background`) and softmax confidence scores.
-
-### 4. 4.0 OCR Text Extraction
-- **Action**: OCR reads and extracts text from the classroom image.
-- **Implementation**: Deep OCR engine detecting small and irregular handwriting as well as printed characters, filtering by confidence thresholds and consolidating text snippets into cohesive transcripts.
-
-### 5. 5.0 NLP Analysis
-- **Action**: The extracted text is analyzed to identify important keywords and topics.
-- **Implementation**:
-  - Tokenization, stopword removal, and frequency weighting to discover key academic terminology.
-  - Topic matching engine mapping content to subject categories (Artificial Intelligence, Mathematics, Physics, Computer Networks, Electronics, Database Systems, etc.).
-
-### 6. 6.0 Structured Notes Generation
-- **Action**: The system combines the extracted information and generates organized notes for the user.
-- **Implementation**: Combines classification, academic topic taxonomy, key vocabulary, and segmented lecture points into clean, student-friendly structured notes exportable in Markdown (.md), Plaintext (.txt), or directly copyable to clipboard.
+- **AI Backend (Render / Railway / Cloud VM)**: Full Python container with TensorFlow-CPU, PyTorch, EasyOCR, OpenCV, Gunicorn WSGI, and SQLite database.
+- **Frontend (Vercel / Direct)**: Fast global CDN serving the responsive glassmorphism web client with dynamic theme switching and multi-device support.
 
 ---
 
-## 🚀 Running the Project
+### Deploying the Backend to Render (Free / Starter)
 
-### Deploying to Vercel
-Connect this repository to Vercel and set the project root to the directory containing `app.py` and `requirements.txt`. Vercel detects the Flask app from `app.py` and installs the declared dependencies automatically; push to `main` to trigger a production deployment. Frontend assets are served from `public/`.
+1. Create a free account at [render.com](https://render.com/).
+2. Click **New +** > **Web Service**.
+3. Connect your GitHub repository (`classroom`).
+4. Configure the service settings:
+   - **Name**: `classroom-board-ai`
+   - **Environment**: `Python 3`
+   - **Branch**: `main`
+   - **Build Command**: `pip install --upgrade pip && pip install -r requirements.txt`
+   - **Start Command**: `gunicorn app:app --workers 1 --threads 4 --timeout 180 --bind 0.0.0.0:$PORT`
+   - **Health Check Path**: `/api/health`
+5. Click **Create Web Service**.
+6. Once deployed, Render will provide a live URL (e.g. `https://classroom-board-ai.onrender.com`).
+   - You can access the complete web application directly from this URL on any phone or laptop!
 
-Vercel's `/tmp` storage is temporary, so uploaded and processed images are not retained between function invocations. The CNN and EasyOCR dependencies are intentionally not included in the serverless deployment; full image analysis requires running the app in an environment with TensorFlow and EasyOCR installed.
+---
 
-### 1. Web Application (Flask Studio)
+### Connecting Your Vercel Frontend to Render
+
+1. In your [Vercel Project Dashboard](https://vercel.com/):
+   - Go to **Settings** > **Environment Variables**.
+   - Add:
+     - **Name**: `BACKEND_URL`
+     - **Value**: `https://classroom-board-ai.onrender.com` (your Render backend URL)
+2. Redeploy Vercel.
+3. Now when visiting `https://classroom-swart-one.vercel.app/` from any phone or computer, it will automatically connect to your Render AI backend for uploads, OCR, CNN, and note generation!
+
+---
+
+## 💻 Local Development & Testing
+
 ```bash
-# Activate Virtual Environment
+# 1. Activate Virtual Environment
 .\venv\Scripts\activate
 
-# Start Flask server
+# 2. Start the local production-grade server
 python app.py
 ```
-Open your browser at `http://127.0.0.1:5000/`.
+Open **http://127.0.0.1:5000/** in your browser.
 
-### 2. Command Line Pipeline Execution
+### Command Line Pipeline Execution
 ```bash
 python pipeline.py
 ```
-Prompt will ask for an image path and execute stages 1.0 through 6.0 with formatted terminal outputs.
+Enter an image path when prompted to run all 6 stages directly in the terminal.
 
 ---
 
-## 📁 Project Directory Structure
-```
-NNLDL PROJECT/
-├── app.py                      # Flask Application & Web Endpoints (Upload, API, Notes Export)
-├── pipeline.py                 # Core 6-Stage Execution Pipeline
-├── preprocessing/
-│   └── image_processing.py    # Step 2.0: Denoise, CLAHE, Sharpen
-├── cnn/
-│   ├── predict.py             # Step 3.0: CNN Classification
-│   └── model/                 # Trained Keras CNN Model
-├── ocr/
-│   └── extractor.py           # Step 4.0: Deep OCR Text Extraction
-├── nlp/
-│   ├── keywords.py            # Step 5.0: Key Vocabulary Extraction
-│   ├── topics.py              # Step 5.0: Academic Topic Detection
-│   └── notes.py               # Step 6.0: Structured Notes Synthesis
-├── templates/
-│   ├── index.html             # Landing Page with 6-Stage Architecture Showcase
-│   └── result.html            # Results Gallery & 6-Stage Analysis Drawer
-├── static/
-│   ├── css/style.css          # Futuristic Neural Glassmorphism Stylesheet
-│   └── js/script.js           # Client-Side Pipeline Orchestrator & Live Drawer
-└── uploads/                   # Staged Classroom Board Images
-```
+## 📡 REST API Reference
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/health` | GET | System health, model readiness, and timestamp |
+| `/api/upload` | POST | Ingest one or more board images (multipart/form-data) |
+| `/api/analyze/<filename>` | GET / POST | Execute full 6-stage AI pipeline on an uploaded image |
+| `/api/export-notes/<filename>?format=md` | GET | Download generated study notes in Markdown or TXT |
+| `/uploads/<filename>` | GET | Access raw uploaded image |
+| `/pipeline_output/<filename>` | GET | Access enhanced preprocessed image |

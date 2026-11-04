@@ -1,7 +1,18 @@
 /**
  * AI Classroom Board Content Extractor
- * Futuristic Neural Studio Frontend Engine (NN/DL Architecture)
+ * Universal Multi-Device Frontend Client
  */
+
+function getApiBaseUrl() {
+    if (window.API_BASE_URL) return window.API_BASE_URL.replace(/\/+$/, '');
+    const meta = document.querySelector('meta[name="backend-api-url"]');
+    if (meta && meta.content && meta.content.trim()) {
+        return meta.content.trim().replace(/\/+$/, '');
+    }
+    const stored = localStorage.getItem('boardai_api_url');
+    if (stored) return stored.replace(/\/+$/, '');
+    return '';
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     initThemeSwitcher();
@@ -758,7 +769,7 @@ function initAnalysisDrawer() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 180000);
 
-        fetch(`/api/analyze/${encodeURIComponent(savedName)}`, {
+        fetch(`${getApiBaseUrl()}/api/analyze/${encodeURIComponent(savedName)}`, {
             signal: controller.signal
         })
             .then(async (res) => {
@@ -1119,7 +1130,7 @@ function initAnalysisDrawer() {
                         </a>
                     </div>
                     <div class="drawer-preview-img-wrap" style="border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border-subtle); max-height: 220px; display: flex; align-items: center; justify-content: center; background: #000; position: relative;">
-                        <img src="/pipeline_output/${encodeURIComponent(data.processed_filename)}" alt="Preprocessed Preview" style="max-width: 100%; max-height: 220px; object-fit: contain;">
+                        <img src="${getApiBaseUrl()}/pipeline_output/${encodeURIComponent(data.processed_filename)}" alt="Preprocessed Preview" style="max-width: 100%; max-height: 220px; object-fit: contain;">
                         <div class="heatmap-overlay" id="heatmap-overlay"></div>
                     </div>
                     <div class="heatmap-toggle-wrap">

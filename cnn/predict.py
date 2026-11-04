@@ -1,13 +1,14 @@
 import os
 import numpy as np
-import tensorflow as tf
 from PIL import Image
 
 # ==========================================
-# CNN PREDICTION MODULE
+# CNN PREDICTION MODULE (PRODUCTION READY)
 # ==========================================
 
-MODEL_PATH = "cnn/model/classroom_cnn.keras"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_MODEL_PATH = os.path.join(BASE_DIR, "model", "classroom_cnn.keras")
+MODEL_PATH = os.environ.get("CNN_MODEL_PATH", DEFAULT_MODEL_PATH)
 
 IMAGE_SIZE = (128, 128)
 
@@ -17,121 +18,79 @@ CLASS_NAMES = [
     "text"
 ]
 
-
-# ==========================================
-# LOAD MODEL
-# ==========================================
-
-if not os.path.exists(MODEL_PATH):
-
-    raise FileNotFoundError(
-        f"Model not found: {MODEL_PATH}"
-    )
-
-model = tf.keras.models.load_model(
-    MODEL_PATH
-)
+_model = None
 
 
-# ==========================================
-# PREDICT IMAGE
-# ==========================================
+def get_model():
+    """
+    Lazy singleton loader for the trained Keras CNN model.
+    Ensures safe loading across local, cloud, and production server environments.
+    """
+    global _model
+    if _model is not None:
+        return _model
 
-def predict_image(image_path):
+    # Locate model file with fallback paths
+    target_path = MODEL_PATH
+    if not os.path.exists(target_path):
+        alt_path = os.path.join(os.getcwd(), "cnn", "model", "classroom_cnn.keras")
+        if os.path.exists(alt_path):
+            target_path = alt_path
+        else:
+            raise FileNotFoundError(
+                f"Classroom CNN model not found at '{target_path}' or '{alt_path}'."
+            )
 
-    image = Image.open(
-        image_path
-    ).convert("RGB")
+    try:
+        import tensorflow as tf
+        _model = tf.keras.models.load_model(target_path)
+        print(f"[OK] Classroom CNN model loaded successfully from: {target_path}")
+        return _model
+    except Exception as exc:
+        print(f"Error loading CNN model from {target_path}: {exc}")
+        raise
 
-    image = image.resize(
-        IMAGE_SIZE
-    )
 
-    image_array = np.array(
-        image,
-        dtype=np.float32
-    )
+def predict_image(image_path: str) -> dict:
+    """
+    Predict classroom board content type: 'board', 'text', or 'background'.
+    """
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Input image not found: {image_path}")
 
-    image_array = np.expand_dims(
-        image_array,
-        axis=0
-    )
+    model = get_model()
 
-    predictions = model.predict(
-        image_array,
-        verbose=0
-    )[0]
+    image = Image.open(image_path).convert("RGB")
+    image = image.resize(IMAGE_SIZE)
 
-    predicted_index = int(
-        np.argmax(predictions)
-    )
+    image_array = np.array(image, dtype=np.float32)
+    image_array = np.expand_dims(image_array, axis=0)
 
-    predicted_class = CLASS_NAMES[
-        predicted_index
-    ]
+    predictions = model.predict(image_array, verbose=0)[0]
+    predicted_index = int(np.argmax(predictions))
+    predicted_class = CLASS_NAMES[predicted_index]
+    confidence = float(predictions[predicted_index])
 
-    confidence = float(
-        predictions[predicted_index]
-    )
+    probabilities = {
+        CLASS_NAMES[i]: float(predictions[i])
+        for i in range(len(CLASS_NAMES))
+    }
 
     return {
         "class": predicted_class,
         "confidence": confidence,
-        "probabilities": {
-            CLASS_NAMES[i]: float(predictions[i])
-            for i in range(len(CLASS_NAMES))
-        }
+        "probabilities": probabilities
     }
 
 
-# ==========================================
-# TEST
-# ==========================================
-
 if __name__ == "__main__":
-
-    print()
     print("==============================================")
-    print("       CNN IMAGE PREDICTION")
+    print("       CNN IMAGE PREDICTION TEST")
     print("==============================================")
-
-    image_path = input(
-        "Enter image path: "
-    ).strip()
-
-    if not os.path.exists(image_path):
-
-        print()
-        print("Image not found.")
-        exit()
-
-    result = predict_image(
-        image_path
-    )
-
-    print()
-    print("Prediction:")
-    print(
-        "Class:",
-        result["class"]
-    )
-
-    print(
-        "Confidence:",
-        f"{result['confidence'] * 100:.2f}%"
-    )
-
-    print()
-    print("Probabilities:")
-
-    for class_name, probability in result[
-        "probabilities"
-    ].items():
-
-        print(
-            f"{class_name}: "
-            f"{probability * 100:.2f}%"
-        )
-
-    print()
-    print("==============================================")
+    sample = os.path.join(os.path.dirname(BASE_DIR), "public", "samples", "sample_board.jpg")
+    if os.path.exists(sample):
+        print(f"Testing on sample: {sample}")
+        print(predict_image(sample))
+    else:
+        path = input("Enter image path: ").strip()
+        print(predict_image(path))

@@ -1,4 +1,26 @@
-Flask>=3.0,<4.0
-Pillow>=10.0,<12.0
-numpy>=1.26,<2.3
-opencv-python-headless>=4.10,<5.0
+# ==============================================================================
+# CLASSROOM AI - PRODUCTION PYTHON DEPENDENCIES
+# Optimized for Render, Railway, Docker, and Production Linux Environments
+# ==============================================================================
+
+# Web Framework & Production WSGI
+Flask>=3.0.0,<4.0.0
+flask-cors>=4.0.0
+gunicorn>=21.2.0
+Werkzeug>=3.0.0
+python-dotenv>=1.0.0
+
+# Computer Vision & Image Processing
+Pillow>=10.0.0,<13.0.0
+numpy>=1.26.0,<2.3.0
+opencv-python-headless>=4.8.0,<5.0.0
+
+# Deep Learning - CNN Classifier
+tensorflow-cpu>=2.15.0,<2.22.0
+
+# Deep Learning - OCR Text Recognition (EasyOCR + PyTorch)
+torch>=2.0.0
+torchvision>=0.15.0
+easyocr>=1.7.0
+scikit-image>=0.20.0
+scipy>=1.10.0
