@@ -4,6 +4,7 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+    initThemeSwitcher();
     initConstellationBackground();
     initNNArchitectureExplorer();
     initUploadDropzone();
@@ -11,6 +12,47 @@ document.addEventListener('DOMContentLoaded', () => {
     initLightboxModal();
     initAnalysisDrawer();
 });
+
+/* ==========================================================================
+   0. DYNAMIC THEME COLOR ACCENT ENGINE
+   ========================================================================== */
+function initThemeSwitcher() {
+    const savedTheme = localStorage.getItem('boardai_theme') || 'cyberpunk';
+    applyTheme(savedTheme, false);
+
+    const themeButtons = document.querySelectorAll('.theme-dot-btn');
+    themeButtons.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const theme = btn.getAttribute('data-set-theme');
+            if (!theme) return;
+            applyTheme(theme, true);
+        });
+    });
+
+    function applyTheme(themeName, notify = true) {
+        document.documentElement.setAttribute('data-theme', themeName);
+        localStorage.setItem('boardai_theme', themeName);
+
+        document.querySelectorAll('.theme-dot-btn').forEach((btn) => {
+            if (btn.getAttribute('data-set-theme') === themeName) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+
+        if (notify) {
+            const names = {
+                'cyberpunk': 'Neon Cyberpunk 🔮',
+                'aurora': 'Cosmic Aurora 🌌',
+                'solar': 'Solar Flare 🌅',
+                'hyperdrive': 'Hyperdrive Blue ⚡'
+            };
+            showToast(`Theme changed to ${names[themeName] || themeName}!`, 'info', 2000);
+        }
+    }
+}
 
 /* ==========================================================================
    1. DYNAMIC NEURAL SYNAPTIC NETWORK CANVAS
@@ -54,6 +96,41 @@ function initConstellationBackground() {
         { text: 'W^T x + b', x: width * 0.5, y: height * 0.15, vy: 0.1, opacity: 0.14 }
     ];
 
+    function getThemePalette() {
+        const theme = document.documentElement.getAttribute('data-theme') || 'cyberpunk';
+        switch (theme) {
+            case 'aurora':
+                return {
+                    colorA: 'rgba(16, 185, 129,',
+                    colorB: 'rgba(6, 214, 160,',
+                    glow: '#06d6a0',
+                    pulse: '#10b981'
+                };
+            case 'solar':
+                return {
+                    colorA: 'rgba(244, 63, 94,',
+                    colorB: 'rgba(245, 158, 11,',
+                    glow: '#fb7185',
+                    pulse: '#f59e0b'
+                };
+            case 'hyperdrive':
+                return {
+                    colorA: 'rgba(59, 130, 246,',
+                    colorB: 'rgba(56, 189, 248,',
+                    glow: '#38bdf8',
+                    pulse: '#60a5fa'
+                };
+            case 'cyberpunk':
+            default:
+                return {
+                    colorA: 'rgba(99, 102, 241,',
+                    colorB: 'rgba(6, 182, 212,',
+                    glow: '#06b6d4',
+                    pulse: '#38bdf8'
+                };
+        }
+    }
+
     class Neuron {
         constructor() {
             this.x = Math.random() * width;
@@ -61,7 +138,7 @@ function initConstellationBackground() {
             this.vx = (Math.random() - 0.5) * 0.55;
             this.vy = (Math.random() - 0.5) * 0.55;
             this.radius = Math.random() * 2.2 + 1.2;
-            this.baseColor = Math.random() > 0.45 ? 'rgba(99, 102, 241,' : 'rgba(6, 182, 212,';
+            this.isAlt = Math.random() > 0.45;
             this.excitation = 0;
         }
 
@@ -92,19 +169,21 @@ function initConstellationBackground() {
         }
 
         draw() {
+            const pal = getThemePalette();
             ctx.beginPath();
             const currentRadius = this.radius + this.excitation * 2.5;
             ctx.arc(this.x, this.y, currentRadius, 0, Math.PI * 2);
 
             const alpha = 0.6 + this.excitation * 0.4;
-            ctx.fillStyle = this.excitation > 0.3 ? `rgba(56, 189, 248, ${alpha})` : `${this.baseColor}${alpha})`;
+            const chosenBase = this.isAlt ? pal.colorB : pal.colorA;
+            ctx.fillStyle = this.excitation > 0.3 ? pal.pulse : `${chosenBase}${alpha})`;
 
             if (this.excitation > 0.2) {
                 ctx.shadowBlur = 12 * this.excitation;
-                ctx.shadowColor = '#06b6d4';
+                ctx.shadowColor = pal.glow;
             } else {
                 ctx.shadowBlur = 6;
-                ctx.shadowColor = this.baseColor + '0.4)';
+                ctx.shadowColor = `${chosenBase}0.4)`;
             }
             ctx.fill();
             ctx.shadowBlur = 0;
@@ -174,12 +253,13 @@ function initConstellationBackground() {
                     ctx.moveTo(neurons[i].x, neurons[i].y);
                     ctx.lineTo(neurons[j].x, neurons[j].y);
 
+                    const pal = getThemePalette();
                     if (neurons[i].excitation > 0.4 || neurons[j].excitation > 0.4) {
-                        ctx.strokeStyle = `rgba(6, 182, 212, ${alpha * 2})`;
-                        ctx.lineWidth = 1.2;
+                        ctx.strokeStyle = `${pal.colorB}${alpha * 2.2})`;
+                        ctx.lineWidth = 1.3;
                     } else {
-                        ctx.strokeStyle = `rgba(99, 102, 241, ${alpha})`;
-                        ctx.lineWidth = 0.8;
+                        ctx.strokeStyle = `${pal.colorA}${alpha})`;
+                        ctx.lineWidth = 0.85;
                     }
                     ctx.stroke();
                 }
@@ -187,6 +267,7 @@ function initConstellationBackground() {
         }
 
         // Render propagating action potential pulses
+        const pal = getThemePalette();
         for (let k = synapticPulses.length - 1; k >= 0; k--) {
             const p = synapticPulses[k];
             p.progress += p.speed;
@@ -200,9 +281,9 @@ function initConstellationBackground() {
 
             ctx.beginPath();
             ctx.arc(px, py, 2.5, 0, Math.PI * 2);
-            ctx.fillStyle = '#38bdf8';
-            ctx.shadowBlur = 8;
-            ctx.shadowColor = '#38bdf8';
+            ctx.fillStyle = pal.pulse;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = pal.glow;
             ctx.fill();
             ctx.shadowBlur = 0;
         }
@@ -377,6 +458,7 @@ function initNNArchitectureExplorer() {
     // Render layers
     track.innerHTML = CNN_LAYERS.map((layer, index) => {
         let tagClass = 'tag-conv';
+        if (layer.type === 'Tensor') tagClass = 'tag-tensor';
         if (layer.type === 'Pool') tagClass = 'tag-pool';
         if (layer.type === 'Dense') tagClass = 'tag-dense';
         if (layer.type === 'Output') tagClass = 'tag-out';

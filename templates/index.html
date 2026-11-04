@@ -43,6 +43,22 @@
                 </a>
 
                 <div class="nav-links">
+                    <div class="theme-palette-picker" title="Switch Color Theme">
+                        <span class="theme-picker-label">Theme</span>
+                        <button type="button" class="theme-dot-btn active" data-set-theme="cyberpunk" title="Neon Cyberpunk">
+                            <span class="theme-dot dot-cyberpunk"></span>
+                        </button>
+                        <button type="button" class="theme-dot-btn" data-set-theme="aurora" title="Cosmic Aurora">
+                            <span class="theme-dot dot-aurora"></span>
+                        </button>
+                        <button type="button" class="theme-dot-btn" data-set-theme="solar" title="Solar Flare">
+                            <span class="theme-dot dot-solar"></span>
+                        </button>
+                        <button type="button" class="theme-dot-btn" data-set-theme="hyperdrive" title="Hyperdrive Blue">
+                            <span class="theme-dot dot-hyperdrive"></span>
+                        </button>
+                    </div>
+
                     <a href="#nn-architecture" class="nav-btn">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <circle cx="18" cy="5" r="3"></circle>
@@ -93,11 +109,11 @@
                 </p>
 
                 <div class="neural-math-pills">
-                    <span class="math-pill" title="Convolutional Tensor Operation"><span class="math-accent">Conv2D:</span> (W * K)(i,j)</span>
-                    <span class="math-pill" title="Rectified Linear Unit Activation"><span class="math-accent">ReLU:</span> max(0, z)</span>
-                    <span class="math-pill" title="Softmax Multiclass Output Distribution"><span class="math-accent">Softmax:</span> e^{z_i} / Σ e^{z_j}</span>
-                    <span class="math-pill" title="Sparse Categorical Cross-Entropy Objective"><span class="math-accent">Loss:</span> -Σ y_i log(p_i)</span>
-                    <span class="math-pill" title="Adaptive Moment Estimation Optimizer"><span class="math-accent">Optimizer:</span> Adam (lr=1e-3)</span>
+                    <span class="math-pill pill-conv" title="Convolutional Tensor Operation"><span class="math-accent">Conv2D:</span> (W * K)(i,j)</span>
+                    <span class="math-pill pill-relu" title="Rectified Linear Unit Activation"><span class="math-accent">ReLU:</span> max(0, z)</span>
+                    <span class="math-pill pill-softmax" title="Softmax Multiclass Output Distribution"><span class="math-accent">Softmax:</span> e^{z_i} / Σ e^{z_j}</span>
+                    <span class="math-pill pill-loss" title="Sparse Categorical Cross-Entropy Objective"><span class="math-accent">Loss:</span> -Σ y_i log(p_i)</span>
+                    <span class="math-pill pill-adam" title="Adaptive Moment Estimation Optimizer"><span class="math-accent">Optimizer:</span> Adam (lr=1e-3)</span>
                 </div>
             </section>
 
@@ -154,20 +170,20 @@
                             <span>Quick Benchmark Snapshots:</span>
                         </div>
                         <div class="sample-picker-buttons">
-                            <button type="button" class="btn-sample-pick" data-sample-src="/samples/sample_board.jpg" data-sample-name="sample_board.jpg">
+                            <button type="button" class="btn-sample-pick sample-pick-board" data-sample-src="/samples/sample_board.jpg" data-sample-name="sample_board.jpg">
                                 <span class="sample-btn-icon">📐</span>
                                 <span>Chalkboard Equations</span>
-                                <span class="sample-tag">Board</span>
+                                <span class="sample-tag sample-tag-board">Board</span>
                             </button>
-                            <button type="button" class="btn-sample-pick" data-sample-src="/samples/sample_diagram.jpg" data-sample-name="sample_diagram.jpg">
+                            <button type="button" class="btn-sample-pick sample-pick-diagram" data-sample-src="/samples/sample_diagram.jpg" data-sample-name="sample_diagram.jpg">
                                 <span class="sample-btn-icon">📊</span>
                                 <span>Architecture Diagram</span>
-                                <span class="sample-tag">Diagram</span>
+                                <span class="sample-tag sample-tag-diagram">Diagram</span>
                             </button>
-                            <button type="button" class="btn-sample-pick" data-sample-src="/samples/sample_text.jpg" data-sample-name="sample_text.jpg">
+                            <button type="button" class="btn-sample-pick sample-pick-text" data-sample-src="/samples/sample_text.jpg" data-sample-name="sample_text.jpg">
                                 <span class="sample-btn-icon">📝</span>
                                 <span>Handwritten Notes</span>
-                                <span class="sample-tag">Text</span>
+                                <span class="sample-tag sample-tag-text">Text</span>
                             </button>
                         </div>
                     </div>
