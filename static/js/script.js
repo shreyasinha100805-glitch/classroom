@@ -4,6 +4,7 @@
  */
 
 function getApiBaseUrl() {
+    if (window.VITE_API_URL) return window.VITE_API_URL.replace(/\/+$/, '');
     if (window.API_BASE_URL) return window.API_BASE_URL.replace(/\/+$/, '');
     const meta = document.querySelector('meta[name="backend-api-url"]');
     if (meta && meta.content && meta.content.trim()) {
@@ -801,7 +802,8 @@ function initAnalysisDrawer() {
                 if (err.name === 'AbortError') {
                     msg = 'Pipeline inference timed out. High-resolution OCR is still completing on CPU.';
                 } else if (msg === 'Failed to fetch') {
-                    msg = 'Cannot reach backend server. Ensure Flask is actively running on http://127.0.0.1:5000.';
+                    const activeUrl = getApiBaseUrl() || 'http://127.0.0.1:5000';
+                    msg = `Cannot reach backend server at ${activeUrl}. Ensure the Python backend service is active and accessible.`;
                 }
                 renderDrawerError(msg, savedName, originalName);
             });
