@@ -18,11 +18,148 @@ function getApiBaseUrl() {
 document.addEventListener('DOMContentLoaded', () => {
     initThemeSwitcher();
     initConstellationBackground();
+    initAuthState();
+    initAuthForms();
     initUploadDropzone();
     initResultsGallery();
     initLightboxModal();
     initAnalysisDrawer();
 });
+
+
+/* ==========================================================================
+   0.1 CLIENT AUTHENTICATION STATE & LOGOUT
+   ========================================================================== */
+function initAuthState() {
+    let user = null;
+    try {
+        user = JSON.parse(localStorage.getItem('boardai_user') || 'null');
+    } catch (e) {
+        user = null;
+    }
+
+    const loginBtn = document.getElementById('nav-login-btn');
+    const signupBtn = document.getElementById('nav-signup-btn');
+    const userBadge = document.getElementById('nav-user-badge');
+    const usernameEl = document.getElementById('nav-username');
+    const logoutBtn = document.getElementById('nav-logout-btn');
+
+    if (user && user.username) {
+        if (loginBtn) loginBtn.style.display = 'none';
+        if (signupBtn) signupBtn.style.display = 'none';
+        if (userBadge) {
+            userBadge.style.display = 'flex';
+            if (userBadge.setAttribute) userBadge.setAttribute('title', `Logged in as ${user.email || user.username}`);
+        }
+        if (usernameEl) usernameEl.textContent = user.username;
+        if (logoutBtn) logoutBtn.style.display = 'inline-flex';
+    } else {
+        if (loginBtn) loginBtn.style.display = 'inline-flex';
+        if (signupBtn) signupBtn.style.display = 'inline-flex';
+        if (userBadge) userBadge.style.display = 'none';
+        if (logoutBtn) logoutBtn.style.display = 'none';
+    }
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            localStorage.removeItem('boardai_user');
+            try {
+                await fetch(`${getApiBaseUrl()}/api/auth/logout`, { method: 'POST' });
+            } catch (err) {}
+            showToast('You have been logged out.', 'info');
+            initAuthState();
+            setTimeout(() => { window.location.href = '/'; }, 600);
+        });
+    }
+}
+
+function initAuthForms() {
+    const loginForm = document.getElementById('login-form');
+    const signupForm = document.getElementById('signup-form');
+    const alertBox = document.getElementById('auth-alert-box');
+    const alertText = document.getElementById('auth-alert-text');
+
+    function showError(msg) {
+        if (alertBox && alertText) {
+            alertText.textContent = msg;
+            alertBox.className = 'auth-alert-box alert-error';
+            alertBox.style.display = 'flex';
+        } else {
+            showToast(msg, 'error');
+        }
+    }
+
+    if (loginForm) {
+        loginForm.addEventListener('submit', async (e) => {
+            const baseUrl = getApiBaseUrl();
+            if (baseUrl || window.location.hostname.includes('vercel.app')) {
+                e.preventDefault();
+                const identifier = document.getElementById('login_identifier').value.trim();
+                const password = document.getElementById('password').value;
+                const submitBtn = document.getElementById('login-submit-btn');
+                if (submitBtn) submitBtn.disabled = true;
+
+                try {
+                    const res = await fetch(`${baseUrl}/api/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ login_identifier: identifier, password: password })
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data.success) {
+                        throw new Error(data.error || 'Invalid username/email or password.');
+                    }
+                    localStorage.setItem('boardai_user', JSON.stringify(data.user));
+                    showToast(`Welcome back, ${data.user.username}!`, 'success');
+                    setTimeout(() => { window.location.href = '/'; }, 800);
+                } catch (err) {
+                    showError(err.message);
+                    if (submitBtn) submitBtn.disabled = false;
+                }
+            }
+        });
+    }
+
+    if (signupForm) {
+        signupForm.addEventListener('submit', async (e) => {
+            const baseUrl = getApiBaseUrl();
+            if (baseUrl || window.location.hostname.includes('vercel.app')) {
+                e.preventDefault();
+                const username = document.getElementById('username').value.trim();
+                const email = document.getElementById('email').value.trim();
+                const password = document.getElementById('password').value;
+                const confirmPassword = document.getElementById('confirm_password').value;
+                const submitBtn = document.getElementById('signup-submit-btn');
+
+                if (password !== confirmPassword) {
+                    showError('Passwords do not match.');
+                    return;
+                }
+
+                if (submitBtn) submitBtn.disabled = true;
+
+                try {
+                    const res = await fetch(`${baseUrl}/api/auth/signup`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ username, email, password, confirm_password: confirmPassword })
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data.success) {
+                        throw new Error(data.error || 'Registration failed.');
+                    }
+                    localStorage.setItem('boardai_user', JSON.stringify(data.user));
+                    showToast(`Welcome to BoardAI, ${data.user.username}!`, 'success');
+                    setTimeout(() => { window.location.href = '/'; }, 800);
+                } catch (err) {
+                    showError(err.message);
+                    if (submitBtn) submitBtn.disabled = false;
+                }
+            }
+        });
+    }
+}
 
 /* ==========================================================================
    0. DYNAMIC THEME COLOR ACCENT ENGINE
@@ -509,12 +646,46 @@ function initUploadDropzone() {
         showToast('Image removed from staging.', 'info');
     }
 
-    // Submit animation and loading screen
+    // Submit animation and loading screen (with AJAX upload fallback for decoupled Vercel -> Render)
     if (uploadForm) {
-        uploadForm.addEventListener('submit', (e) => {
+        uploadForm.addEventListener('submit', async (e) => {
             if (!fileInput.files || fileInput.files.length === 0) {
                 e.preventDefault();
                 showToast('Please select at least one board image.', 'error');
+                return;
+            }
+
+            const baseUrl = getApiBaseUrl();
+            if (baseUrl || window.location.hostname.includes('vercel.app')) {
+                e.preventDefault();
+                showUploadLoadingOverlay();
+                const formData = new FormData();
+                Array.from(fileInput.files).forEach((f) => formData.append('images', f));
+
+                try {
+                    const uploadEndpoint = baseUrl ? `${baseUrl}/api/upload` : '/api/upload';
+                    const res = await fetch(uploadEndpoint, {
+                        method: 'POST',
+                        body: formData,
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    if (!res.ok) {
+                        const errData = await res.json().catch(() => ({}));
+                        throw new Error(errData.error || `Upload failed with HTTP status ${res.status}`);
+                    }
+                    const data = await res.json();
+                    if (data.success && data.files) {
+                        sessionStorage.setItem('boardai_latest_uploads', JSON.stringify(data.files));
+                        showToast(`Successfully uploaded ${data.files.length} images!`, 'success');
+                        window.location.href = '/result.html';
+                    } else {
+                        throw new Error(data.error || 'Upload could not be processed.');
+                    }
+                } catch (err) {
+                    const overlay = document.getElementById('processing-overlay');
+                    if (overlay) overlay.classList.remove('active');
+                    showToast(`Upload failed: ${err.message}`, 'error', 6000);
+                }
                 return;
             }
 
@@ -561,6 +732,125 @@ function initUploadDropzone() {
    3. RESULTS GALLERY & 3D TILT CARDS
    ========================================================================== */
 function initResultsGallery() {
+    const galleryGrid = document.querySelector('.results-gallery-grid') || document.getElementById('results-gallery-grid');
+    const searchInput = document.getElementById('search-input');
+    let cards = document.querySelectorAll('.image-result-card');
+
+    // Dynamic loading for decoupled frontend (e.g. Vercel)
+    if ((!cards || cards.length === 0) && galleryGrid) {
+        loadDecoupledGallery(galleryGrid);
+        return;
+    }
+
+    bindGalleryEvents();
+}
+
+async function loadDecoupledGallery(galleryGrid) {
+    let files = [];
+    try {
+        const stored = sessionStorage.getItem('boardai_latest_uploads');
+        if (stored) files = JSON.parse(stored);
+    } catch (e) {}
+
+    const baseUrl = getApiBaseUrl();
+    if (!files || files.length === 0) {
+        try {
+            const res = await fetch(`${baseUrl}/api/files`, { headers: { 'Accept': 'application/json' } });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && data.files) files = data.files;
+            }
+        } catch (e) {
+            console.warn('Could not fetch backend uploads:', e);
+        }
+    }
+
+    const emptyState = document.getElementById('gallery-empty-state');
+    const countPill = document.getElementById('gallery-count-pill');
+    const statTotal = document.getElementById('stat-total-count');
+    const showingCount = document.getElementById('gallery-showing-count');
+
+    if (!files || files.length === 0) {
+        if (emptyState) emptyState.style.display = 'block';
+        if (countPill) countPill.textContent = '0 Images Staged';
+        if (statTotal) statTotal.textContent = '0';
+        if (showingCount) showingCount.textContent = '0';
+        return;
+    }
+
+    if (emptyState) emptyState.style.display = 'none';
+    if (countPill) countPill.textContent = `${files.length} Image${files.length !== 1 ? 's' : ''} Ready`;
+    if (statTotal) statTotal.textContent = files.length;
+    if (showingCount) showingCount.textContent = files.length;
+
+    galleryGrid.innerHTML = '';
+    files.forEach((file, idx) => {
+        const card = document.createElement('div');
+        card.className = 'image-result-card';
+        card.setAttribute('data-filename', file.original_name);
+        card.style.animationDelay = `${idx * 0.08}s`;
+
+        const numStr = String(idx + 1).padStart(2, '0');
+        const imgUrl = `${baseUrl}/uploads/${encodeURIComponent(file.saved_name)}`;
+
+        card.innerHTML = `
+            <div class="card-media-box" title="Click to inspect full resolution">
+                <div class="card-floating-badges">
+                    <span class="badge-index">#${numStr}</span>
+                    <span class="badge-format">${file.extension || 'IMG'}</span>
+                </div>
+                <img src="${imgUrl}" alt="${file.original_name}" loading="lazy">
+                <div class="scanline-beam"></div>
+                <div class="card-hover-zoom-hint">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        <line x1="11" y1="8" x2="11" y2="14"></line>
+                        <line x1="8" y1="11" x2="14" y2="11"></line>
+                    </svg>
+                    Inspect Fullsize
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="card-title-row">
+                    <h3 class="card-image-name" title="${file.original_name}">${file.original_name}</h3>
+                    <button type="button" class="btn-copy-name" data-copy="${file.original_name}" title="Copy filename">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div class="card-meta-row">
+                    <span>📦 ${file.file_size || 'Saved'}</span>
+                    <span>📐 ${file.dimensions || 'Verified'}</span>
+                </div>
+                <div class="card-actions-row">
+                    <button type="button" class="btn-run-pipeline" data-saved-name="${file.saved_name}" data-orig-name="${file.original_name}">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                        </svg>
+                        Run 6-Stage Pipeline
+                    </button>
+                    <a href="${imgUrl}" download="${file.original_name}" class="btn-download-image" title="Download raw image">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                    </a>
+                </div>
+            </div>
+        `;
+        galleryGrid.appendChild(card);
+    });
+
+    bindGalleryEvents();
+    initLightboxModal();
+    initAnalysisDrawer();
+}
+
+function bindGalleryEvents() {
     const cards = document.querySelectorAll('.image-result-card');
     const searchInput = document.getElementById('search-input');
     const galleryGrid = document.querySelector('.results-gallery-grid');

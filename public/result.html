@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uploaded Board Images - AI Board Extractor</title>
+    <meta name="backend-api-url" content="https://classroom-board-ai.onrender.com">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'><polygon points='13 2 3 14 12 14 11 22 21 10 12 10 13 2'/></svg>">
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+<body>
+    <!-- Dynamic Constellation Particle Canvas -->
+    <canvas id="particle-canvas"></canvas>
+
+    <!-- Ambient Glowing Gradient Orbs -->
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
+    <div class="ambient-glow glow-3"></div>
+
+    <div class="app-wrapper">
+        <!-- Top Navigation -->
+        <nav class="navbar">
+            <div class="container nav-container">
+                <a href="/" class="brand-logo">
+                    <div class="logo-icon-wrap">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                        </svg>
+                    </div>
+                    <div class="brand-text">
+                        Board<span>AI</span><span class="brand-sub-badge">AI Studio</span>
+                    </div>
+                </a>
+
+                <div class="nav-links">
+                    <div class="theme-palette-picker" title="Switch Color Theme">
+                        <span class="theme-picker-label">Theme</span>
+                        <button type="button" class="theme-dot-btn active" data-set-theme="cyberpunk" title="Neon Cyberpunk">
+                            <span class="theme-dot dot-cyberpunk"></span>
+                        </button>
+                        <button type="button" class="theme-dot-btn" data-set-theme="aurora" title="Cosmic Aurora">
+                            <span class="theme-dot dot-aurora"></span>
+                        </button>
+                        <button type="button" class="theme-dot-btn" data-set-theme="solar" title="Solar Flare">
+                            <span class="theme-dot dot-solar"></span>
+                        </button>
+                        <button type="button" class="theme-dot-btn" data-set-theme="hyperdrive" title="Hyperdrive Blue">
+                            <span class="theme-dot dot-hyperdrive"></span>
+                        </button>
+                    </div>
+
+                    <a href="/" class="btn-upload-more">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        Upload More Images
+                    </a>
+
+                    <!-- User Authentication State -->
+                    <div class="auth-nav-state" id="auth-nav-state" style="display: flex; align-items: center; gap: 8px;">
+                        <a href="/login.html" class="nav-btn btn-nav-login" id="nav-login-btn">Log In</a>
+                        <a href="/signup.html" class="btn-nav-signup" id="nav-signup-btn">Sign Up</a>
+                        <div class="user-profile-badge" id="nav-user-badge" style="display: none;" title="Logged in">
+                            <span class="user-avatar-dot"></span>
+                            <span id="nav-username">User</span>
+                        </div>
+                        <a href="/logout" class="btn-logout" id="nav-logout-btn" style="display: none;" title="Sign out">Logout</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Container -->
+        <main class="container">
+            <!-- Results Header Banner -->
+            <section class="results-header-banner">
+                <div class="results-top-bar">
+                    <div class="results-title-group">
+                        <div class="pill-announcement" style="margin-bottom: 12px;">
+                            <span class="pill-sparkle">✦</span>
+                            <span id="gallery-count-pill">Classroom Board Gallery</span>
+                        </div>
+                        <h1>Classroom Board Gallery</h1>
+                        <p>High-resolution captures verified for the complete 6-stage deep neural and linguistic extraction pipeline.</p>
+                        <div class="neural-tech-badge-strip">
+                            <span class="badge-tag"><span class="pulse-dot"></span> ConvNet Classifier Armed</span>
+                            <span class="badge-tag">BiLSTM Text Recognizer</span>
+                            <span class="badge-tag">Softmax Probability Head</span>
+                            <span class="badge-tag">TF-IDF Vector Space</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <a href="/" class="btn-upload-more">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 12H5M12 19l-7-7 7-7"/>
+                            </svg>
+                            Back to Upload
+                        </a>
+                    </div>
+                </div>
+
+                <!-- 6-Stage Process Ribbon -->
+                <div class="stages-compact-ribbon">
+                    <div class="ribbon-item">
+                        <span class="ribbon-step">1.0</span>
+                        <span class="ribbon-text">Upload & Validation</span>
+                    </div>
+                    <span class="ribbon-arrow">→</span>
+                    <div class="ribbon-item">
+                        <span class="ribbon-step">2.0</span>
+                        <span class="ribbon-text">Preprocessing</span>
+                    </div>
+                    <span class="ribbon-arrow">→</span>
+                    <div class="ribbon-item">
+                        <span class="ribbon-step">3.0</span>
+                        <span class="ribbon-text">CNN Classification</span>
+                    </div>
+                    <span class="ribbon-arrow">→</span>
+                    <div class="ribbon-item">
+                        <span class="ribbon-step">4.0</span>
+                        <span class="ribbon-text">OCR Extraction</span>
+                    </div>
+                    <span class="ribbon-arrow">→</span>
+                    <div class="ribbon-item">
+                        <span class="ribbon-step">5.0</span>
+                        <span class="ribbon-text">NLP Analysis</span>
+                    </div>
+                    <span class="ribbon-arrow">→</span>
+                    <div class="ribbon-item highlight">
+                        <span class="ribbon-step">6.0</span>
+                        <span class="ribbon-text">Structured Notes</span>
+                    </div>
+                </div>
+
+                <!-- Stats Metrics Strip -->
+                <div class="stats-strip">
+                    <div class="stat-box">
+                        <div class="stat-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                <polyline points="21 15 16 10 5 21"></polyline>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <h3 id="stat-total-count">0</h3>
+                            <p>Validated Snapshots</p>
+                        </div>
+                    </div>
+
+                    <div class="stat-box">
+                        <div class="stat-icon" style="color: #38bdf8; background: rgba(6, 182, 212, 0.12); border-color: rgba(6, 182, 212, 0.3);">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <h3>6.0 Stages</h3>
+                            <p>Full Pipeline Armed</p>
+                        </div>
+                    </div>
+
+                    <div class="stat-box">
+                        <div class="stat-icon" style="color: #34d399; background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.3);">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <h3>Auto Notes</h3>
+                            <p>Markdown / Text Export</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Search & Filter Controls -->
+                <div class="gallery-controls-bar">
+                    <div class="search-input-wrap">
+                        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input type="text" id="search-input" class="search-input" placeholder="Filter images by filename...">
+                    </div>
+
+                    <div style="font-size: 0.85rem; color: var(--text-muted); font-family: var(--font-mono);">
+                        Showing <span id="gallery-showing-count" style="color: #fff; font-weight: 600;">0</span> items
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Gallery Grid (Populated dynamically from backend / sessionStorage) -->
+            <div class="results-gallery-grid" id="results-gallery-grid">
+                <!-- Dynamically populated or rendered -->
+            </div>
+
+            <!-- Empty State Fallback -->
+            <div id="gallery-empty-state" style="display: none; text-align: center; padding: 70px 20px; background: var(--bg-card); border: 1px dashed var(--border-subtle); border-radius: var(--radius-lg); margin-bottom: 50px;">
+                <div style="display: flex; justify-content: center; margin-bottom: 16px;">
+                    <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); display: flex; align-items: center; justify-content: center; color: var(--primary-indigo);">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <h3 style="font-family: var(--font-heading); font-size: 1.4rem; color: #fff; margin-bottom: 8px;">No Images Uploaded Yet</h3>
+                <p style="color: var(--text-secondary); max-width: 420px; margin: 0 auto 24px auto;">
+                    Select or drag-and-drop classroom board images to begin automated content extraction.
+                </p>
+                <a href="/" class="btn-neural-submit">
+                    Upload Board Images
+                </a>
+            </div>
+        </main>
+
+        <!-- Fullscreen Lightbox Modal -->
+        <div class="lightbox-modal" id="lightbox-modal">
+            <div class="lightbox-backdrop"></div>
+            <div class="lightbox-content-box">
+                <button type="button" class="btn-close-lightbox" id="btn-close-lightbox" title="Close fullscreen preview">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+                <img src="" alt="Fullscreen Inspection" class="lightbox-img" id="lightbox-img">
+                <div class="lightbox-caption" id="lightbox-caption"></div>
+            </div>
+        </div>
+
+        <!-- Slide-out AI Analysis & Notes Drawer -->
+        <div class="analysis-drawer" id="analysis-drawer">
+            <div class="drawer-header">
+                <div class="drawer-header-left">
+                    <span class="drawer-badge">NEURAL INSPECTOR</span>
+                    <h3 class="drawer-title" id="drawer-title">Pipeline Output</h3>
+                </div>
+                <button type="button" class="btn-close-drawer" id="btn-close-drawer" title="Close drawer">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="drawer-content" id="drawer-content">
+                <!-- Dynamically loaded on pipeline execution -->
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer style="margin-top: auto; padding: 25px 0; border-top: 1px solid var(--border-subtle); text-align: center; font-size: 0.82rem; color: var(--text-muted);">
+            <div class="container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                    AI Classroom Board Content Extractor • Intelligent Content Extractor & Note Synthesizer
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <span class="badge-tag">Classification</span>
+                    <span class="badge-tag">OCR</span>
+                    <span class="badge-tag">NLP</span>
+                    <span class="badge-tag">Notes</span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/js/script.js"></script>
+</body>
+
+</html>

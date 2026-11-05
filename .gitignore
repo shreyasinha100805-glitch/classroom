@@ -15,3 +15,5 @@ database.db
 .env
 .env.local
 model_cache/
+*.log
+node_modules/

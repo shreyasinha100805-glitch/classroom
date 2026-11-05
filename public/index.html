@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Classroom Board Content Extractor</title>
+    <meta name="backend-api-url" content="https://classroom-board-ai.onrender.com">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'><polygon points='13 2 3 14 12 14 11 22 21 10 12 10 13 2'/></svg>">
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+<body>
+    <!-- Dynamic Constellation Particle Canvas -->
+    <canvas id="particle-canvas"></canvas>
+
+    <!-- Ambient Glowing Gradient Orbs -->
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
+    <div class="ambient-glow glow-3"></div>
+
+    <div class="app-wrapper">
+        <!-- Top Navigation -->
+        <nav class="navbar">
+            <div class="container nav-container">
+                <a href="/" class="brand-logo">
+                    <div class="logo-icon-wrap">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                        </svg>
+                    </div>
+                    <div class="brand-text">
+                        Board<span>AI</span><span class="brand-sub-badge">AI Studio</span>
+                    </div>
+                </a>
+
+                <div class="nav-links">
+                    <div class="theme-palette-picker" title="Switch Color Theme">
+                        <span class="theme-picker-label">Theme</span>
+                        <button type="button" class="theme-dot-btn active" data-set-theme="cyberpunk" title="Neon Cyberpunk">
+                            <span class="theme-dot dot-cyberpunk"></span>
+                        </button>
+                        <button type="button" class="theme-dot-btn" data-set-theme="aurora" title="Cosmic Aurora">
+                            <span class="theme-dot dot-aurora"></span>
+                        </button>
+                        <button type="button" class="theme-dot-btn" data-set-theme="solar" title="Solar Flare">
+                            <span class="theme-dot dot-solar"></span>
+                        </button>
+                        <button type="button" class="theme-dot-btn" data-set-theme="hyperdrive" title="Hyperdrive Blue">
+                            <span class="theme-dot dot-hyperdrive"></span>
+                        </button>
+                    </div>
+
+                    <a href="/result.html" class="nav-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                            <polyline points="21 15 16 10 5 21"></polyline>
+                        </svg>
+                        Past Uploads
+                    </a>
+
+                    <!-- User Authentication State (Handled dynamically by script.js) -->
+                    <div class="auth-nav-state" id="auth-nav-state" style="display: flex; align-items: center; gap: 8px;">
+                        <a href="/login.html" class="nav-btn btn-nav-login" id="nav-login-btn">Log In</a>
+                        <a href="/signup.html" class="btn-nav-signup" id="nav-signup-btn">Sign Up</a>
+                        <div class="user-profile-badge" id="nav-user-badge" style="display: none;" title="Logged in">
+                            <span class="user-avatar-dot"></span>
+                            <span id="nav-username">User</span>
+                        </div>
+                        <a href="/logout" class="btn-logout" id="nav-logout-btn" style="display: none;" title="Sign out">Logout</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="container">
+            <!-- Hero Section -->
+            <section class="hero-section">
+                <div class="pill-announcement">
+                    <span class="pill-sparkle">✦</span>
+                    Multimodal Deep Vision & OCR Pipeline
+                </div>
+
+                <h1 class="hero-title">
+                    AI Classroom Board<br>Content Extractor
+                </h1>
+
+                <p class="hero-subtitle">
+                    Transform raw blackboard, chalkboard, and whiteboard photos into structured, actionable study notes using automated deep vision and text extraction.
+                </p>
+
+                <div class="neural-math-pills">
+                    <span class="math-pill pill-conv">Board & Text Detection</span>
+                    <span class="math-pill pill-relu">High-Accuracy OCR</span>
+                    <span class="math-pill pill-softmax">Smart Content Extraction</span>
+                    <span class="math-pill pill-adam">Organized Study Notes</span>
+                </div>
+            </section>
+
+            <!-- Main Upload Form Panel (Stage 1.0 Entry) -->
+            <div class="main-upload-panel">
+                <div class="upload-panel-badge">
+                    <span class="step-tag-pill">STAGE 1.0</span>
+                    Image Ingestion & Format Validation
+                </div>
+
+                <form id="upload-form" action="/upload" method="POST" enctype="multipart/form-data">
+                    <!-- Dropzone -->
+                    <div class="dropzone-container" id="dropzone">
+                        <input
+                            type="file"
+                            id="images"
+                            name="images"
+                            accept=".jpg,.jpeg,.png"
+                            multiple
+                            required
+                        >
+
+                        <div class="dropzone-visual">
+                            <div class="dropzone-icon-bubble">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="17 8 12 3 7 8"></polyline>
+                                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                            </div>
+                        </div>
+
+                        <h3 class="dropzone-title">
+                            Drag & drop board snapshots here, or <span>Browse Files</span>
+                        </h3>
+
+                        <p class="dropzone-desc">
+                            Select single or multiple classroom chalkboard & whiteboard images to process
+                        </p>
+
+                        <div class="dropzone-tags">
+                            <span class="badge-tag">PNG</span>
+                            <span class="badge-tag">JPG</span>
+                            <span class="badge-tag">JPEG</span>
+                            <span class="badge-tag">Multi-Batch</span>
+                            <span class="badge-tag">Automatic Validation</span>
+                        </div>
+                    </div>
+
+                    <!-- Quick Benchmark Sample Picker -->
+                    <div class="sample-picker-bar">
+                        <div class="sample-picker-label">
+                            <span class="sample-picker-pulse"></span>
+                            <span>Quick Benchmark Snapshots:</span>
+                        </div>
+                        <div class="sample-picker-buttons">
+                            <button type="button" class="btn-sample-pick sample-pick-board" data-sample-src="/samples/sample_board.jpg" data-sample-name="sample_board.jpg">
+                                <span class="sample-btn-icon">📐</span>
+                                <span>Chalkboard Equations</span>
+                                <span class="sample-tag sample-tag-board">Board</span>
+                            </button>
+                            <button type="button" class="btn-sample-pick sample-pick-diagram" data-sample-src="/samples/sample_diagram.jpg" data-sample-name="sample_diagram.jpg">
+                                <span class="sample-btn-icon">📊</span>
+                                <span>Architecture Diagram</span>
+                                <span class="sample-tag sample-tag-diagram">Diagram</span>
+                            </button>
+                            <button type="button" class="btn-sample-pick sample-pick-text" data-sample-src="/samples/sample_text.jpg" data-sample-name="sample_text.jpg">
+                                <span class="sample-btn-icon">📝</span>
+                                <span>Handwritten Notes</span>
+                                <span class="sample-tag sample-tag-text">Text</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Client-Side Live Staging Area (Previews before upload) -->
+                    <div class="staging-area" id="staging-area">
+                        <div class="staging-header">
+                            <div class="staging-title-group">
+                                <span class="staging-title">Staged for Inference</span>
+                                <span class="staging-count-badge" id="staging-count-badge">0 Images</span>
+                            </div>
+                            <button type="button" class="btn-clear-all" id="btn-clear-all">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                                Clear All
+                            </button>
+                        </div>
+
+                        <div class="preview-grid" id="preview-grid">
+                            <!-- Populated dynamically via script.js -->
+                        </div>
+                    </div>
+
+                    <!-- Submit Action Button -->
+                    <div class="submit-action-wrap">
+                        <button type="submit" class="btn-neural-submit" id="submit-btn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                            </svg>
+                            <span id="submit-btn-text">Execute 6-Stage AI Pipeline</span>
+                            <svg class="btn-icon-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                                <polyline points="12 5 19 12 12 19"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </main>
+
+        <!-- Processing / Uploading Modal Overlay (Walks through 1.0 to 6.0) -->
+        <div class="processing-modal-overlay" id="processing-overlay">
+            <div class="processing-modal-box">
+                <div class="neural-spinner-wrap">
+                    <div class="ring-outer"></div>
+                    <div class="ring-inner"></div>
+                    <div class="spinner-core"></div>
+                </div>
+
+                <div class="modal-step-tag" id="modal-step-tag">1.0 IMAGE UPLOAD & VALIDATION</div>
+                <h3 class="processing-title">Executing AI Pipeline</h3>
+                <div class="processing-status-text" id="processing-status">
+                    Validating classroom-board images...
+                </div>
+
+                <div class="progress-bar-wrap">
+                    <div class="progress-bar-fill" id="progress-bar-fill"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer style="margin-top: auto; padding: 25px 0; border-top: 1px solid var(--border-subtle); text-align: center; font-size: 0.82rem; color: var(--text-muted);">
+            <div class="container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                    AI Classroom Board Content Extractor • Intelligent Content Extractor & Note Synthesizer
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <span class="badge-tag">Upload</span>
+                    <span class="badge-tag">Preprocess</span>
+                    <span class="badge-tag">OCR</span>
+                    <span class="badge-tag">Notes</span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/js/script.js"></script>
+</body>
+
+</html>

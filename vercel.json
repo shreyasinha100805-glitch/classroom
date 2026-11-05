@@ -7,9 +7,16 @@
       "source": "/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization, X-Requested-With" }
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,OPTIONS,HEAD" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization, X-Requested-With, Accept" }
       ]
     }
+  ],
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://classroom-board-ai.onrender.com/api/$1" },
+    { "source": "/upload", "destination": "https://classroom-board-ai.onrender.com/upload" },
+    { "source": "/uploads/(.*)", "destination": "https://classroom-board-ai.onrender.com/uploads/$1" },
+    { "source": "/pipeline_output/(.*)", "destination": "https://classroom-board-ai.onrender.com/pipeline_output/$1" },
+    { "source": "/results", "destination": "/result.html" }
   ]
 }
