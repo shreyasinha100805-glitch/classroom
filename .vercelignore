@@ -1,0 +1,45 @@
+# ==============================================================================
+# Vercel Deployment Ignore Rules (Lightweight Static Frontend Deployment)
+# Excludes heavy Python AI/ML backend, models, datasets, and cache
+# ==============================================================================
+
+requirements.txt
+requirements*.txt
+runtime.txt
+.python-version
+Procfile
+render.yaml
+
+app.py
+auth.py
+pipeline.py
+create_dataset.py
+label_crops.py
+split_dataset.py
+test_*.py
+view_crops.py
+
+*.py
+*.pyc
+__pycache__/
+venv/
+.venv/
+
+cnn/
+ocr/
+nlp/
+preprocessing/
+model_cache/
+
+dataset/
+dataset_old/
+dataset_samples/
+
+*.db
+database/
+database.db
+uploads/
+pipeline_output/
+preprocessed/
+crop_preview.jpg
+labels.csv

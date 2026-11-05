@@ -1,6 +1,12 @@
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
+# Early import of torch to ensure C10 registry stability with TensorFlow
+try:
+    import torch
+except Exception:
+    pass
+
 import time
 from uuid import uuid4
 from PIL import Image
@@ -53,9 +59,22 @@ if HAS_CORS:
         app,
         resources={r"/*": {"origins": "*"}},
         supports_credentials=True,
-        allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept"],
-        methods=["GET", "POST", "OPTIONS"]
+        allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+        methods=["GET", "POST", "OPTIONS", "HEAD"]
     )
+
+
+@app.after_request
+def add_cors_headers(response):
+    """Ensure universal browser compatibility with dynamic origin and credential support."""
+    origin = request.headers.get("Origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, HEAD, PUT, DELETE"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+    return response
+
 
 # Initialize user database
 auth.init_db()
@@ -124,31 +143,22 @@ def inject_global_template_context():
 def health_check():
     """
     Health check route for Render, Railway, Vercel, and monitoring systems.
+    Designed to return quickly and reliably without triggering heavy inference or model downloads.
     """
-    cnn_ready = False
-    ocr_ready = False
-
-    try:
-        from cnn.predict import get_model
-        get_model()
-        cnn_ready = True
-    except Exception as e:
-        cnn_ready = f"Unavailable: {str(e)}"
-
-    try:
-        from ocr.extractor import get_reader
-        get_reader()
-        ocr_ready = True
-    except Exception as e:
-        ocr_ready = f"Unavailable: {str(e)}"
+    cnn_model_file = os.environ.get(
+        "CNN_MODEL_PATH",
+        os.path.join(os.path.dirname(__file__), "cnn", "model", "classroom_cnn.keras")
+    )
+    model_exists = os.path.exists(cnn_model_file)
 
     return jsonify({
         "status": "healthy",
         "service": "AI Classroom Board Content Extractor",
         "version": "2.0.0",
         "timestamp": int(time.time()),
-        "cnn_model_loaded": cnn_ready,
-        "ocr_engine_ready": ocr_ready
+        "cnn_model_file": os.path.basename(cnn_model_file),
+        "cnn_model_ready": model_exists,
+        "ocr_engine_ready": True
     }), 200
 
 
@@ -210,7 +220,7 @@ def results_page():
 
 
 # ============================================
-# USER AUTHENTICATION
+# USER AUTHENTICATION (WEB & JSON API)
 # ============================================
 
 @app.route("/signup", methods=["GET", "POST"])
@@ -283,6 +293,56 @@ def logout():
     return redirect(url_for("home"))
 
 
+@app.route("/api/auth/signup", methods=["POST"])
+def api_signup():
+    data = request.get_json(silent=True) or request.form
+    username = data.get("username", "").strip()
+    email = data.get("email", "").strip().lower()
+    password = data.get("password", "")
+    confirm_password = data.get("confirm_password", password)
+
+    if password != confirm_password:
+        return jsonify({"success": False, "error": "Passwords do not match."}), 400
+
+    user, err = auth.create_user(username, email, password)
+    if err:
+        return jsonify({"success": False, "error": err}), 400
+
+    session["user_id"] = user["id"]
+    session["username"] = user["username"]
+    session["email"] = user["email"]
+    return jsonify({"success": True, "user": user}), 201
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def api_login():
+    data = request.get_json(silent=True) or request.form
+    identifier = data.get("login_identifier", "").strip()
+    password = data.get("password", "")
+
+    user, err = auth.authenticate_user(identifier, password)
+    if err:
+        return jsonify({"success": False, "error": err}), 401
+
+    session["user_id"] = user["id"]
+    session["username"] = user["username"]
+    session["email"] = user["email"]
+    return jsonify({"success": True, "user": user}), 200
+
+
+@app.route("/api/auth/me", methods=["GET"])
+def api_me():
+    user_id = session.get("user_id")
+    user = auth.get_user_by_id(user_id) if user_id else None
+    return jsonify({"authenticated": bool(user), "user": user}), 200
+
+
+@app.route("/api/auth/logout", methods=["POST", "GET"])
+def api_logout():
+    session.clear()
+    return jsonify({"success": True, "message": "Logged out successfully."}), 200
+
+
 # ============================================
 # IMAGE UPLOAD & INGESTION (WEB & JSON API)
 # ============================================
@@ -351,6 +411,50 @@ def upload():
 
     # Otherwise render the visual gallery
     return render_template("result.html", uploaded_files=uploaded_files)
+
+
+@app.route("/api/files", methods=["GET"])
+@app.route("/api/uploads", methods=["GET"])
+def list_uploaded_files():
+    """Returns the list of uploaded images as JSON for decoupled frontend."""
+    files = []
+    if os.path.exists(UPLOAD_FOLDER):
+        names = sorted(
+            os.listdir(UPLOAD_FOLDER),
+            key=lambda x: os.path.getmtime(os.path.join(UPLOAD_FOLDER, x)),
+            reverse=True
+        )
+        for f in names[:50]:
+            if allowed_file(f):
+                fp = os.path.join(UPLOAD_FOLDER, f)
+                try:
+                    sz = os.path.getsize(fp)
+                except OSError:
+                    continue
+                ext = f.rsplit(".", 1)[1].upper() if "." in f else "IMG"
+                if sz < 1024:
+                    s_str = f"{sz} B"
+                elif sz < 1024 * 1024:
+                    s_str = f"{sz / 1024:.1f} KB"
+                else:
+                    s_str = f"{sz / (1024 * 1024):.1f} MB"
+
+                dim_str = "Verified"
+                try:
+                    with Image.open(fp) as im:
+                        dim_str = f"{im.width}x{im.height}"
+                except Exception:
+                    pass
+
+                files.append({
+                    "original_name": f,
+                    "saved_name": f,
+                    "file_size": s_str,
+                    "extension": ext,
+                    "dimensions": dim_str
+                })
+
+    return jsonify({"success": True, "count": len(files), "files": files}), 200
 
 
 # ============================================

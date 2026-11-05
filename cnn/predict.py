@@ -42,8 +42,12 @@ def get_model():
             )
 
     try:
-        import tensorflow as tf
-        _model = tf.keras.models.load_model(target_path)
+        try:
+            import keras
+            _model = keras.models.load_model(target_path)
+        except Exception:
+            import tensorflow as tf
+            _model = tf.keras.models.load_model(target_path)
         print(f"[OK] Classroom CNN model loaded successfully from: {target_path}")
         return _model
     except Exception as exc:
