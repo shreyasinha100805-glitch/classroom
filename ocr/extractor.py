@@ -20,6 +20,16 @@ def get_model_storage_directory() -> str:
     if configured and os.path.exists(configured):
         return configured
 
+    # Check local workspace cache first (pre-cached models)
+    local_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "model_cache", "easyocr"))
+    if os.path.exists(local_dir):
+        try:
+            files = os.listdir(local_dir)
+            if any(f.endswith(".pth") for f in files):
+                return local_dir
+        except Exception:
+            pass
+
     # Check default user location
     user_dir = os.path.expanduser("~/.EasyOCR/model")
     try:
@@ -32,8 +42,6 @@ def get_model_storage_directory() -> str:
     except (OSError, PermissionError):
         pass
 
-    # Check local workspace cache
-    local_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "model_cache", "easyocr"))
     try:
         os.makedirs(local_dir, exist_ok=True)
         return local_dir
@@ -67,7 +75,8 @@ def get_reader():
                 gpu=False,
                 model_storage_directory=model_dir,
                 user_network_directory=model_dir,
-                download_enabled=True
+                download_enabled=True,
+                verbose=False
             )
             print("[OK] EasyOCR reader successfully initialized.")
         except Exception as exc:
@@ -75,7 +84,7 @@ def get_reader():
             try:
                 import easyocr
                 # Fallback to default reader params
-                _reader = easyocr.Reader(['en'], gpu=False, download_enabled=True)
+                _reader = easyocr.Reader(['en'], gpu=False, download_enabled=True, verbose=False)
                 print("[OK] EasyOCR fallback initialization succeeded.")
             except Exception as exc2:
                 print(f"Error: EasyOCR reader could not be initialized: {exc2}")
@@ -150,4 +159,4 @@ if __name__ == "__main__":
     res = extract_text(test_img)
     print(f"Found {len(res)} text lines:")
     for r in res:
-        print(f"  • {r['text']} (conf: {r['confidence']})")
+        print(f"  * {r['text']} (conf: {r['confidence']})")

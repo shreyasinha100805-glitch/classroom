@@ -1,5 +1,8 @@
 {
-  "version": 2,
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "node build.js",
+  "outputDirectory": "public",
   "cleanUrls": true,
   "trailingSlash": false,
   "headers": [
@@ -17,6 +20,8 @@
     { "source": "/upload", "destination": "https://classroom-board-ai.onrender.com/upload" },
     { "source": "/uploads/(.*)", "destination": "https://classroom-board-ai.onrender.com/uploads/$1" },
     { "source": "/pipeline_output/(.*)", "destination": "https://classroom-board-ai.onrender.com/pipeline_output/$1" },
-    { "source": "/results", "destination": "/result.html" }
+    { "source": "/results", "destination": "/result.html" },
+    { "source": "/login", "destination": "/login.html" },
+    { "source": "/signup", "destination": "/signup.html" }
   ]
 }

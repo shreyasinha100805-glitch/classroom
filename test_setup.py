@@ -4,6 +4,7 @@ import easyocr
 import sklearn
 import spacy
 import flask
+import importlib.metadata
 
 print("=" * 50)
 print("AI CLASSROOM BOARD EXTRACTOR")
@@ -14,7 +15,7 @@ print("TensorFlow  :", tf.__version__)
 print("EasyOCR     : OK")
 print("Scikit-Learn:", sklearn.__version__)
 print("spaCy       :", spacy.__version__)
-print("Flask       :", flask.__version__)
+print("Flask       :", importlib.metadata.version("flask"))
 
 print("=" * 50)
 print("ALL LIBRARIES ARE WORKING!")

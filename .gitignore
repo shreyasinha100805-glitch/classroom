@@ -17,3 +17,5 @@ database.db
 model_cache/
 *.log
 node_modules/
+dist/
+build/

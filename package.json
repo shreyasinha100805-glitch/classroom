@@ -4,7 +4,8 @@
   "private": true,
   "description": "AI Classroom Board Content Extractor - Neural Vision & Note Generator Frontend",
   "scripts": {
-    "build": "echo 'Frontend static build verified for Vercel deployment'",
-    "start": "serve -s ."
+    "build": "node build.js",
+    "test": "node -e \"const fs=require('fs'); ['public/index.html','public/result.html','public/login.html','public/signup.html'].forEach(f=>{if(!fs.existsSync(f)) throw new Error('Missing '+f);}); console.log('All frontend static assets verified successfully.');\"",
+    "start": "serve -s public"
   }
 }

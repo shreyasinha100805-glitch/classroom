@@ -1,0 +1,62 @@
+name: Classroom AI - CI & Build Verification
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  frontend-verification:
+    name: Frontend Build & Asset Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Execute Frontend Build
+        run: |
+          node build.js
+
+      - name: Verify Frontend Distribution Assets
+        run: |
+          npm test
+
+      - name: Validate Vercel Configuration
+        run: |
+          python3 -c "import json; conf = json.load(open('vercel.json')); assert conf.get('outputDirectory') == 'public'; print('vercel.json validation passed')"
+
+  backend-verification:
+    name: Python 3.11 Backend Integrity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.11"
+
+      - name: Check Python Syntax Across Repository
+        run: |
+          python -m compileall -q app.py auth.py pipeline.py cnn/ nlp/ ocr/ preprocessing/
+
+      - name: Verify AI Model Files
+        run: |
+          test -f cnn/model/classroom_cnn.keras || (echo "CNN model file missing!" && exit 1)
+          echo "Classroom CNN model binary verified."
+
+      - name: Install Core Server Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install Flask==3.1.0 Flask-Cors==5.0.0 Werkzeug==3.1.3 Pillow==10.4.0
+
+      - name: Verify Flask Routes and Endpoints
+        run: |
+          python -c "import app; print('Flask server initialized with routes:'); print(app.app.url_map)"

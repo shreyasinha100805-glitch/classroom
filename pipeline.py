@@ -166,7 +166,7 @@ def run_pipeline(image_path: str):
         for item in ocr_results:
             text = item["text"]
             score = item["confidence"]
-            print(f"  • {text} (conf: {score:.2f})")
+            print(f"  - {text} (conf: {score:.2f})")
             if score >= 0.40:
                 extracted_text.append(text)
 
@@ -413,5 +413,6 @@ def run_pipeline_data(image_path: str) -> dict:
 
 
 if __name__ == "__main__":
-    image_path = input("Enter image path: ").strip()
+    import sys
+    image_path = sys.argv[1].strip() if len(sys.argv) > 1 else input("Enter image path: ").strip()
     run_pipeline(image_path)

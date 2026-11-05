@@ -43,3 +43,7 @@ pipeline_output/
 preprocessed/
 crop_preview.jpg
 labels.csv
+
+templates/
+static/
+.github/

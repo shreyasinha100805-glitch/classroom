@@ -140,18 +140,18 @@ for index, filename in enumerate(
         )
 
         print(
-            "    → enhanced"
+            "    -> enhanced"
         )
 
         print(
-            "    → grayscale"
+            "    -> grayscale"
         )
 
 
     except Exception as error:
 
         print(
-            f"[✗] {filename}: {error}"
+            f"[FAIL] {filename}: {error}"
         )
 
 
