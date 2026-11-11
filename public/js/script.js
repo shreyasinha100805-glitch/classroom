@@ -3,6 +3,11 @@
  * Universal Multi-Device Frontend Client
  */
 
+function isSameOriginBackendHost() {
+    const host = window.location.hostname || '';
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.local');
+}
+
 function getApiBaseUrl() {
     if (window.VITE_API_URL) return window.VITE_API_URL.replace(/\/+$/, '');
     if (window.API_BASE_URL) return window.API_BASE_URL.replace(/\/+$/, '');
@@ -12,6 +17,7 @@ function getApiBaseUrl() {
     }
     const stored = localStorage.getItem('boardai_api_url');
     if (stored) return stored.replace(/\/+$/, '');
+    if (isSameOriginBackendHost()) return window.location.origin.replace(/\/+$/, '');
     return '';
 }
 
@@ -64,9 +70,12 @@ function initAuthState() {
         logoutBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             localStorage.removeItem('boardai_user');
-            try {
-                await fetch(`${getApiBaseUrl()}/api/auth/logout`, { method: 'POST' });
-            } catch (err) {}
+            const baseUrl = getApiBaseUrl();
+            if (baseUrl) {
+                try {
+                    await fetch(`${baseUrl}/api/auth/logout`, { method: 'POST' });
+                } catch (err) {}
+            }
             showToast('You have been logged out.', 'info');
             initAuthState();
             setTimeout(() => { window.location.href = '/'; }, 600);
@@ -93,7 +102,8 @@ function initAuthForms() {
     if (loginForm) {
         loginForm.addEventListener('submit', async (e) => {
             const baseUrl = getApiBaseUrl();
-            if (baseUrl || window.location.hostname.includes('vercel.app')) {
+            const isLocalAuth = isSameOriginBackendHost();
+            if (baseUrl || isLocalAuth) {
                 e.preventDefault();
                 const identifier = document.getElementById('login_identifier').value.trim();
                 const password = document.getElementById('password').value;
@@ -101,7 +111,7 @@ function initAuthForms() {
                 if (submitBtn) submitBtn.disabled = true;
 
                 try {
-                    const res = await fetch(`${baseUrl}/api/auth/login`, {
+                    const res = await fetch(`${baseUrl || window.location.origin}/api/auth/login`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                         body: JSON.stringify({ login_identifier: identifier, password: password })
@@ -124,7 +134,8 @@ function initAuthForms() {
     if (signupForm) {
         signupForm.addEventListener('submit', async (e) => {
             const baseUrl = getApiBaseUrl();
-            if (baseUrl || window.location.hostname.includes('vercel.app')) {
+            const isLocalAuth = isSameOriginBackendHost();
+            if (baseUrl || isLocalAuth) {
                 e.preventDefault();
                 const username = document.getElementById('username').value.trim();
                 const email = document.getElementById('email').value.trim();
@@ -140,7 +151,7 @@ function initAuthForms() {
                 if (submitBtn) submitBtn.disabled = true;
 
                 try {
-                    const res = await fetch(`${baseUrl}/api/auth/signup`, {
+                    const res = await fetch(`${baseUrl || window.location.origin}/api/auth/signup`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                         body: JSON.stringify({ username, email, password, confirm_password: confirmPassword })
@@ -646,6 +657,34 @@ function initUploadDropzone() {
         showToast('Image removed from staging.', 'info');
     }
 
+    // Wake up Render backend (free tier cold-start) before uploading
+    async function wakeUpBackend(statusEl, tagEl, barFill) {
+        const healthUrl = '/api/health';
+        const maxAttempts = 10;
+        const retryDelayMs = 3000;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                if (tagEl) tagEl.textContent = 'WAKE UP';
+                if (statusEl) statusEl.textContent = `Server is waking up... (attempt ${attempt}/${maxAttempts}). This takes ~30s on first load.`;
+                if (barFill) barFill.style.width = `${Math.min(attempt * 8, 40)}%`;
+
+                const res = await fetch(healthUrl, { method: 'GET', headers: { 'Accept': 'application/json' } });
+                if (res.ok) {
+                    if (statusEl) statusEl.textContent = 'Server is online! Starting upload...';
+                    if (barFill) barFill.style.width = '45%';
+                    return true;
+                }
+            } catch (e) {
+                // Server still waking up — wait and retry
+            }
+            if (attempt < maxAttempts) {
+                await new Promise(r => setTimeout(r, retryDelayMs));
+            }
+        }
+        return false; // timed out
+    }
+
     // Submit animation and loading screen (with AJAX upload fallback for decoupled Vercel -> Render)
     if (uploadForm) {
         uploadForm.addEventListener('submit', async (e) => {
@@ -656,14 +695,33 @@ function initUploadDropzone() {
             }
 
             const baseUrl = getApiBaseUrl();
-            if (baseUrl || window.location.hostname.includes('vercel.app')) {
+            const isSameOriginUpload = isSameOriginBackendHost();
+            if (baseUrl || isSameOriginUpload) {
                 e.preventDefault();
                 showUploadLoadingOverlay();
+
+                const overlay = document.getElementById('processing-overlay');
+                const statusEl = document.getElementById('processing-status');
+                const tagEl = document.getElementById('modal-step-tag');
+                const barFill = document.getElementById('progress-bar-fill');
+
+                // Wake up Render backend before uploading
+                const isAwake = await wakeUpBackend(statusEl, tagEl, barFill);
+                if (!isAwake) {
+                    if (overlay) overlay.classList.remove('active');
+                    showToast('Server is taking too long to wake up. Please wait 30 seconds and try again.', 'error', 8000);
+                    return;
+                }
+
                 const formData = new FormData();
                 Array.from(fileInput.files).forEach((f) => formData.append('images', f));
 
                 try {
-                    const uploadEndpoint = baseUrl ? `${baseUrl}/api/upload` : '/api/upload';
+                    if (tagEl) tagEl.textContent = 'STAGE 1.0';
+                    if (statusEl) statusEl.textContent = '1.0 Image Upload & Validation: Uploading and validating classroom-board image...';
+                    if (barFill) barFill.style.width = '55%';
+
+                    const uploadEndpoint = (baseUrl || window.location.origin) + '/api/upload';
                     const res = await fetch(uploadEndpoint, {
                         method: 'POST',
                         body: formData,
@@ -682,14 +740,17 @@ function initUploadDropzone() {
                         throw new Error(data.error || 'Upload could not be processed.');
                     }
                 } catch (err) {
-                    const overlay = document.getElementById('processing-overlay');
                     if (overlay) overlay.classList.remove('active');
-                    showToast(`Upload failed: ${err.message}`, 'error', 6000);
+                    const msg = err && err.message === 'Failed to fetch'
+                        ? 'Server went offline. Please wait 30 seconds and try again.'
+                        : `Upload failed: ${err.message}`;
+                    showToast(msg, 'error', 8000);
                 }
                 return;
             }
 
-            showUploadLoadingOverlay();
+            showToast('Upload backend is not configured. Set BACKEND_URL to your Python API before uploading.', 'error', 6000);
+            return;
         });
     }
 
@@ -754,8 +815,15 @@ async function loadDecoupledGallery(galleryGrid) {
 
     const baseUrl = getApiBaseUrl();
     if (!files || files.length === 0) {
+        if (!baseUrl && !isSameOriginBackendHost()) {
+            const emptyState = document.getElementById('gallery-empty-state');
+            const countPill = document.getElementById('gallery-count-pill');
+            if (emptyState) emptyState.style.display = 'block';
+            if (countPill) countPill.textContent = 'No backend configured';
+            return;
+        }
         try {
-            const res = await fetch(`${baseUrl}/api/files`, { headers: { 'Accept': 'application/json' } });
+            const res = await fetch(`${baseUrl || window.location.origin}/api/files`, { headers: { 'Accept': 'application/json' } });
             if (res.ok) {
                 const data = await res.json();
                 if (data.success && data.files) files = data.files;
@@ -1056,11 +1124,17 @@ function initAnalysisDrawer() {
         drawer.classList.add('open');
         showDrawerLoading(originalName);
 
+        const apiBaseUrl = getApiBaseUrl();
+        if (!apiBaseUrl && !isSameOriginBackendHost()) {
+            renderDrawerError('No backend is configured to run the AI analysis pipeline. Set BACKEND_URL or run the Python backend on this host.', savedName, originalName);
+            return;
+        }
+
         // Fetch backend AI analysis with 180s timeout controller
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 180000);
 
-        fetch(`${getApiBaseUrl()}/api/analyze/${encodeURIComponent(savedName)}`, {
+        fetch(`${apiBaseUrl || window.location.origin}/api/analyze/${encodeURIComponent(savedName)}`, {
             signal: controller.signal
         })
             .then(async (res) => {
