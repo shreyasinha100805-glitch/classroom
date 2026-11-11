@@ -8,6 +8,8 @@ except Exception:
     pass
 
 import time
+import secrets
+import re
 from uuid import uuid4
 from PIL import Image
 from werkzeug.utils import secure_filename
@@ -24,7 +26,7 @@ from flask import (
     flash
 )
 
-# Optional CORS support for cross-origin frontend (e.g. Vercel -> Render)
+# Optional CORS support for cross-origin frontend
 try:
     from flask_cors import CORS
     HAS_CORS = True
@@ -39,9 +41,9 @@ from pipeline import (
     validate_image,
 )
 
-# ============================================
-# FLASK APPLICATION CONFIGURATION
-# ============================================
+# ==============================================================================
+# FLASK APPLICATION CONFIGURATION & SECURITY HARDENING
+# ==============================================================================
 
 app = Flask(
     __name__,
@@ -49,34 +51,109 @@ app = Flask(
     static_url_path=""
 )
 
-app.secret_key = os.environ.get("SECRET_KEY", "boardai-neural-studio-secret-key-2026")
-app.config["TEMPLATES_AUTO_RELOAD"] = True
-app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32 MB max upload limit
+# Detect runtime environment
+is_production = (
+    os.environ.get("FLASK_ENV") == "production"
+    or bool(os.environ.get("RENDER"))
+    or bool(os.environ.get("VERCEL"))
+)
 
-# Enable CORS for universal device and cross-origin deployment support
+# Item 1: Secure Secret Key Configuration (Zero hardcoded credentials)
+env_secret = os.environ.get("SECRET_KEY")
+if env_secret and env_secret.strip():
+    app.secret_key = env_secret.strip()
+elif is_production:
+    print("[SECURITY WARNING] 'SECRET_KEY' environment variable not set in production.")
+    print("[SECURITY WARNING] Generating ephemeral cryptographic key for session isolation.")
+    app.secret_key = secrets.token_hex(32)
+else:
+    app.secret_key = os.environ.get("DEV_SECRET_KEY", "classmind-dev-session-key-" + secrets.token_hex(16))
+
+# Session and cookie security parameters
+app.config.update(
+    TEMPLATES_AUTO_RELOAD=True,
+    MAX_CONTENT_LENGTH=32 * 1024 * 1024,  # 32 MB max upload limit
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=is_production,
+    PERMANENT_SESSION_LIFETIME=86400 * 7  # 7-day session lifetime
+)
+
+# Item 2: Explicit Trusted CORS Origins (No wildcard + credential conflicts)
+DEFAULT_TRUSTED_ORIGINS = [
+    "https://classroom-theta-silk.vercel.app",
+    "https://classroom-board-ai.onrender.com",
+    "http://localhost:3000",
+    "http://localhost:5000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5000",
+]
+
+env_origins = os.environ.get("TRUSTED_ORIGINS", "")
+if env_origins:
+    TRUSTED_ORIGINS = [o.strip() for o in env_origins.split(",") if o.strip()]
+else:
+    TRUSTED_ORIGINS = DEFAULT_TRUSTED_ORIGINS
+
+
+def is_origin_allowed(origin: str | None) -> bool:
+    """Validates origin against trusted origins and canonical project domains."""
+    if not origin:
+        return False
+    if origin in TRUSTED_ORIGINS:
+        return True
+    # Match project-specific Vercel preview deployments
+    if re.match(r"^https://classroom-[a-zA-Z0-9_-]+\.vercel\.app$", origin):
+        return True
+    # Match local development hosts on any valid port
+    if re.match(r"^http://(localhost|127\.0\.0\.1)(:\d+)?$", origin):
+        return True
+    return False
+
+
 if HAS_CORS:
     CORS(
         app,
-        resources={r"/*": {"origins": "*"}},
+        origins=TRUSTED_ORIGINS,
         supports_credentials=True,
         allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
-        methods=["GET", "POST", "OPTIONS", "HEAD"]
+        methods=["GET", "POST", "OPTIONS", "HEAD", "PUT", "DELETE"]
     )
+
+
+@app.before_request
+def handle_options_preflight():
+    """Handle CORS preflight OPTIONS requests with explicit origin validation."""
+    if request.method == "OPTIONS":
+        response = app.make_default_options_response()
+        origin = request.headers.get("Origin")
+        if origin and is_origin_allowed(origin):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, HEAD, PUT, DELETE"
+            response.headers["Access-Control-Allow-Headers"] = (
+                "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+            )
+            response.headers["Vary"] = "Origin"
+        return response
 
 
 @app.after_request
 def add_cors_headers(response):
-    """Ensure universal browser compatibility with dynamic origin and credential support."""
+    """Enforce explicit origin matching on all responses (eliminates wildcard credentials)."""
     origin = request.headers.get("Origin")
-    if origin:
+    if origin and is_origin_allowed(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, HEAD, PUT, DELETE"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        response.headers["Access-Control-Allow-Headers"] = (
+            "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        )
+        response.headers["Vary"] = "Origin"
     return response
 
 
-# Initialize user database
+# Initialize user database (schema preserved)
 auth.init_db()
 
 # Upload storage directory
@@ -98,34 +175,55 @@ def allowed_file(filename: str) -> bool:
     )
 
 
-def cleanup_old_files(max_age_hours: int = 48):
-    """Purge temporary uploads older than max_age_hours to prevent disk overflow."""
+# Item 5: Safe Rate-Limited File Cleanup (Protects In-Flight Processing)
+_last_cleanup_timestamp = 0.0
+
+
+def cleanup_old_files(max_age_hours: int = 24, min_protection_hours: int = 2):
+    """
+    Purges temporary uploads older than max_age_hours to prevent disk overflow.
+    Guarantees that files modified less than min_protection_hours ago are NEVER deleted,
+    protecting active uploads and pipeline runs.
+    Throttled to run at most once per hour.
+    """
+    global _last_cleanup_timestamp
+    now = time.time()
+    if now - _last_cleanup_timestamp < 3600:
+        return
+
+    _last_cleanup_timestamp = now
+    max_age_sec = max_age_hours * 3600
+    min_protection_sec = min_protection_hours * 3600
+
     try:
-        now = time.time()
-        max_age_sec = max_age_hours * 3600
         for folder in [UPLOAD_FOLDER, PIPELINE_OUTPUT_FOLDER]:
             if not os.path.exists(folder):
                 continue
             for item in os.listdir(folder):
                 item_path = os.path.join(folder, item)
                 if os.path.isfile(item_path):
-                    if now - os.path.getmtime(item_path) > max_age_sec:
+                    file_age = now - os.path.getmtime(item_path)
+                    if file_age > max_age_sec and file_age > min_protection_sec:
                         try:
                             os.remove(item_path)
                         except OSError:
                             pass
     except Exception as exc:
-        print(f"Notice: Periodic storage cleanup warning: {exc}")
+        print(f"Notice: Periodic storage cleanup notice: {exc}")
 
 
-# ============================================
-# CONTEXT PROCESSORS & INJECTORS
-# ============================================
+# ==============================================================================
+# CONTEXT PROCESSORS & GLOBAL HELPERS
+# ==============================================================================
 
 @app.context_processor
 def inject_global_template_context():
     user_id = session.get("user_id")
     user = auth.get_user_by_id(user_id) if user_id else None
+    if user_id and not user:
+        # Clear stale session if user no longer exists in database
+        session.clear()
+
     backend_url = os.environ.get("BACKEND_URL", "").rstrip("/")
     return {
         "current_user": user,
@@ -134,17 +232,14 @@ def inject_global_template_context():
     }
 
 
-# ============================================
+# ==============================================================================
 # HEALTH CHECK & SYSTEM STATUS
-# ============================================
+# ==============================================================================
 
 @app.route("/health", methods=["GET"])
 @app.route("/api/health", methods=["GET"])
 def health_check():
-    """
-    Health check route for Render, Railway, Vercel, and monitoring systems.
-    Designed to return quickly and reliably without triggering heavy inference or model downloads.
-    """
+    """Fast health check route for Render, Vercel, and uptime probes."""
     cnn_model_file = os.environ.get(
         "CNN_MODEL_PATH",
         os.path.join(os.path.dirname(__file__), "cnn", "model", "classroom_cnn.keras")
@@ -167,9 +262,9 @@ def favicon():
     return ("", 204)
 
 
-# ============================================
+# ==============================================================================
 # WEB PAGES
-# ============================================
+# ==============================================================================
 
 @app.route("/")
 def home():
@@ -219,9 +314,9 @@ def results_page():
     return render_template("result.html", uploaded_files=files)
 
 
-# ============================================
+# ==============================================================================
 # USER AUTHENTICATION (WEB & JSON API)
-# ============================================
+# ==============================================================================
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
@@ -343,9 +438,9 @@ def api_logout():
     return jsonify({"success": True, "message": "Logged out successfully."}), 200
 
 
-# ============================================
-# IMAGE UPLOAD & INGESTION (WEB & JSON API)
-# ============================================
+# ==============================================================================
+# IMAGE UPLOAD & INGESTION
+# ==============================================================================
 
 @app.route("/upload", methods=["POST"])
 @app.route("/api/upload", methods=["POST"])
@@ -370,7 +465,7 @@ def upload():
 
         file.save(target_path)
 
-        # 1.0 Image Ingestion & Validation
+        # Ingestion & Validation
         val = validate_image(target_path)
         if not val["valid"]:
             try:
@@ -397,11 +492,10 @@ def upload():
 
     if not uploaded_files:
         if request.is_json or request.path.startswith("/api/"):
-            return jsonify({"success": False, "error": "No valid classroom-board images could be processed."}), 400
+            return jsonify({"success": False, "error": "No valid classroom-board images could be verified."}), 400
         flash("No valid images could be verified. Please check file format and size.", "error")
         return redirect(url_for("home"))
 
-    # Return JSON for API consumers (mobile apps, decoupled frontends)
     if request.is_json or request.path.startswith("/api/") or request.headers.get("Accept") == "application/json":
         return jsonify({
             "success": True,
@@ -409,14 +503,13 @@ def upload():
             "files": uploaded_files
         }), 200
 
-    # Otherwise render the visual gallery
     return render_template("result.html", uploaded_files=uploaded_files)
 
 
 @app.route("/api/files", methods=["GET"])
 @app.route("/api/uploads", methods=["GET"])
 def list_uploaded_files():
-    """Returns the list of uploaded images as JSON for decoupled frontend."""
+    """Returns the list of uploaded images as JSON."""
     files = []
     if os.path.exists(UPLOAD_FOLDER):
         names = sorted(
@@ -457,9 +550,9 @@ def list_uploaded_files():
     return jsonify({"success": True, "count": len(files), "files": files}), 200
 
 
-# ============================================
+# ==============================================================================
 # STATIC MEDIA SERVERS
-# ============================================
+# ==============================================================================
 
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
@@ -471,9 +564,9 @@ def pipeline_output_file(filename):
     return send_from_directory(PIPELINE_OUTPUT_FOLDER, filename)
 
 
-# ============================================
+# ==============================================================================
 # API: COMPLETE 6-STAGE AI PIPELINE
-# ============================================
+# ==============================================================================
 
 @app.route("/api/analyze/<filename>", methods=["GET", "POST"])
 def api_analyze_image(filename):
@@ -490,9 +583,10 @@ def api_analyze_image(filename):
         result = run_pipeline_data(image_path)
         return jsonify(result), 200
     except Exception as exc:
+        app.logger.error(f"AI pipeline execution failure on {safe_name}: {exc}", exc_info=True)
         return jsonify({
             "success": False,
-            "error": f"AI pipeline execution failed: {str(exc)}"
+            "error": "The AI pipeline encountered an error processing the image. Please try another capture."
         }), 500
 
 
@@ -505,31 +599,85 @@ def export_notes(filename):
     if not os.path.exists(image_path):
         return jsonify({"error": "Image file not found"}), 404
 
-    result = run_pipeline_data(image_path)
-    notes = result.get("structured_notes", {})
+    try:
+        result = run_pipeline_data(image_path)
+        notes = result.get("structured_notes", {})
 
-    if format_type == "txt":
-        content = notes.get("plain_text", "No content extracted.")
-        mimetype = "text/plain"
-        dl_name = f"notes_{safe_name}.txt"
-    else:
-        content = notes.get("markdown", "# No content extracted.")
-        mimetype = "text/markdown"
-        dl_name = f"notes_{safe_name}.md"
+        if format_type == "txt":
+            content = notes.get("plain_text", "No content extracted.")
+            mimetype = "text/plain"
+            dl_name = f"notes_{safe_name}.txt"
+        else:
+            content = notes.get("markdown", "# No content extracted.")
+            mimetype = "text/markdown"
+            dl_name = f"notes_{safe_name}.md"
 
-    return Response(
-        content,
-        mimetype=mimetype,
-        headers={"Content-Disposition": f"attachment; filename={dl_name}"}
-    )
+        return Response(
+            content,
+            mimetype=mimetype,
+            headers={"Content-Disposition": f"attachment; filename={dl_name}"}
+        )
+    except Exception as exc:
+        app.logger.error(f"Export notes error on {safe_name}: {exc}", exc_info=True)
+        return jsonify({"error": "Unable to export notes."}), 500
 
 
-# ============================================
+# ==============================================================================
+# SANITIZED GLOBAL ERROR HANDLERS (ITEM 4 & 7)
+# ==============================================================================
+
+@app.errorhandler(400)
+def handle_bad_request(err):
+    message = getattr(err, "description", "Bad request.")
+    if request.path.startswith("/api/") or request.is_json:
+        return jsonify({"success": False, "error": str(message)}), 400
+    return render_template("index.html", error=str(message)), 400
+
+
+@app.errorhandler(404)
+def handle_not_found(err):
+    if request.path.startswith("/api/") or request.is_json:
+        return jsonify({"success": False, "error": "Requested resource was not found."}), 404
+    return render_template("index.html", error="Resource not found."), 404
+
+
+@app.errorhandler(413)
+def handle_file_too_large(err):
+    msg = "Uploaded file exceeds the maximum allowed limit of 32 MB."
+    if request.path.startswith("/api/") or request.is_json:
+        return jsonify({"success": False, "error": msg}), 413
+    flash(msg, "error")
+    return redirect(url_for("home")), 413
+
+
+@app.errorhandler(500)
+def handle_internal_server_error(err):
+    app.logger.error(f"Internal 500 error on {request.path}: {err}", exc_info=True)
+    if request.path.startswith("/api/") or request.is_json:
+        return jsonify({
+            "success": False,
+            "error": "An internal server error occurred. Please try again later."
+        }), 500
+    return render_template("index.html", error="An internal server error occurred."), 500
+
+
+@app.errorhandler(Exception)
+def handle_unhandled_exception(exc):
+    app.logger.error(f"Unhandled exception on {request.path}: {exc}", exc_info=True)
+    if request.path.startswith("/api/") or request.is_json:
+        return jsonify({
+            "success": False,
+            "error": "An unexpected error occurred while processing your request."
+        }), 500
+    return render_template("index.html", error="An unexpected error occurred."), 500
+
+
+# ==============================================================================
 # SERVER STARTUP (LOCAL / PRODUCTION WSGI)
-# ============================================
+# ==============================================================================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     debug_mode = os.environ.get("FLASK_DEBUG", "0").lower() in ("1", "true", "yes")
-    print(f"🚀 Starting Classroom AI Server on http://0.0.0.0:{port} (Debug: {debug_mode})")
+    print(f"Starting Classroom AI Server on http://0.0.0.0:{port} (Debug: {debug_mode})")
     app.run(host="0.0.0.0", port=port, debug=debug_mode)
