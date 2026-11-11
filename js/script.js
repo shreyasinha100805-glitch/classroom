@@ -83,6 +83,21 @@ function initAuthState() {
     }
 }
 
+// Wake up Render backend before an API call (free tier cold-start)
+async function wakeUpBackend(statusEl) {
+    const maxAttempts = 10;
+    const retryDelayMs = 3000;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            if (statusEl) statusEl.textContent = `Server is waking up… (${attempt}/${maxAttempts}). This takes ~30 s on first use.`;
+            const res = await fetch('/api/health', { method: 'GET', headers: { 'Accept': 'application/json' } });
+            if (res.ok) return true;
+        } catch (_) { /* still waking */ }
+        if (attempt < maxAttempts) await new Promise(r => setTimeout(r, retryDelayMs));
+    }
+    return false;
+}
+
 function initAuthForms() {
     const loginForm = document.getElementById('login-form');
     const signupForm = document.getElementById('signup-form');
@@ -99,73 +114,98 @@ function initAuthForms() {
         }
     }
 
+    function hideError() {
+        if (alertBox) alertBox.style.display = 'none';
+    }
+
+    function humaniseNetworkError(err) {
+        if (!err) return 'An unknown error occurred.';
+        const msg = err.message || '';
+        if (msg === 'Failed to fetch' || msg.includes('NetworkError') || msg.includes('ERR_')) {
+            return 'Cannot reach the server. It may be starting up — please wait 30 seconds and try again.';
+        }
+        return msg;
+    }
+
     if (loginForm) {
         loginForm.addEventListener('submit', async (e) => {
-            const baseUrl = getApiBaseUrl();
-            const isLocalAuth = isSameOriginBackendHost();
-            if (baseUrl || isLocalAuth) {
-                e.preventDefault();
-                const identifier = document.getElementById('login_identifier').value.trim();
-                const password = document.getElementById('password').value;
-                const submitBtn = document.getElementById('login-submit-btn');
-                if (submitBtn) submitBtn.disabled = true;
+            // Always intercept — use Vercel proxy (/api/auth/login) rather than a direct Render URL
+            e.preventDefault();
+            hideError();
 
-                try {
-                    const res = await fetch(`${baseUrl || window.location.origin}/api/auth/login`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        body: JSON.stringify({ login_identifier: identifier, password: password })
-                    });
-                    const data = await res.json();
-                    if (!res.ok || !data.success) {
-                        throw new Error(data.error || 'Invalid username/email or password.');
-                    }
-                    localStorage.setItem('boardai_user', JSON.stringify(data.user));
-                    showToast(`Welcome back, ${data.user.username}!`, 'success');
-                    setTimeout(() => { window.location.href = '/'; }, 800);
-                } catch (err) {
-                    showError(err.message);
-                    if (submitBtn) submitBtn.disabled = false;
-                }
+            const identifier = (document.getElementById('login_identifier') || {}).value || '';
+            const password = (document.getElementById('password') || {}).value || '';
+            const submitBtn = document.getElementById('login-submit-btn');
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Signing in…'; }
+
+            try {
+                // Wake backend first (handles Render cold-start transparently)
+                const statusEl = alertText || null;
+                if (alertBox && statusEl) { alertBox.className = 'auth-alert-box alert-info'; alertBox.style.display = 'flex'; }
+                const awake = await wakeUpBackend(statusEl);
+                if (!awake) { showError('Server is taking too long to respond. Please try again in a moment.'); return; }
+                hideError();
+
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ login_identifier: identifier.trim(), password })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.success) throw new Error(data.error || 'Invalid username/email or password.');
+                localStorage.setItem('boardai_user', JSON.stringify(data.user));
+                showToast(`Welcome back, ${data.user.username}!`, 'success');
+                setTimeout(() => { window.location.href = '/'; }, 800);
+            } catch (err) {
+                showError(humaniseNetworkError(err));
+            } finally {
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Log In'; }
             }
         });
     }
 
     if (signupForm) {
         signupForm.addEventListener('submit', async (e) => {
-            const baseUrl = getApiBaseUrl();
-            const isLocalAuth = isSameOriginBackendHost();
-            if (baseUrl || isLocalAuth) {
-                e.preventDefault();
-                const username = document.getElementById('username').value.trim();
-                const email = document.getElementById('email').value.trim();
-                const password = document.getElementById('password').value;
-                const confirmPassword = document.getElementById('confirm_password').value;
-                const submitBtn = document.getElementById('signup-submit-btn');
+            // Always intercept — use Vercel proxy (/api/auth/signup) rather than a direct Render URL
+            e.preventDefault();
+            hideError();
 
-                if (password !== confirmPassword) {
-                    showError('Passwords do not match.');
-                    return;
-                }
+            const username = (document.getElementById('username') || {}).value || '';
+            const email = (document.getElementById('email') || {}).value || '';
+            const password = (document.getElementById('password') || {}).value || '';
+            const confirmPassword = (document.getElementById('confirm_password') || {}).value || '';
+            const submitBtn = document.getElementById('signup-submit-btn');
 
-                if (submitBtn) submitBtn.disabled = true;
+            if (password !== confirmPassword) { showError('Passwords do not match.'); return; }
+            if (username.trim().length < 3) { showError('Username must be at least 3 characters.'); return; }
 
-                try {
-                    const res = await fetch(`${baseUrl || window.location.origin}/api/auth/signup`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        body: JSON.stringify({ username, email, password, confirm_password: confirmPassword })
-                    });
-                    const data = await res.json();
-                    if (!res.ok || !data.success) {
-                        throw new Error(data.error || 'Registration failed.');
-                    }
-                    localStorage.setItem('boardai_user', JSON.stringify(data.user));
-                    showToast(`Welcome to BoardAI, ${data.user.username}!`, 'success');
-                    setTimeout(() => { window.location.href = '/'; }, 800);
-                } catch (err) {
-                    showError(err.message);
-                    if (submitBtn) submitBtn.disabled = false;
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.querySelector('span') && (submitBtn.querySelector('span').textContent = 'Creating account…'); }
+
+            try {
+                // Wake backend first (handles Render cold-start transparently)
+                const statusEl = alertText || null;
+                if (alertBox && statusEl) { alertBox.className = 'auth-alert-box alert-info'; alertBox.style.display = 'flex'; }
+                const awake = await wakeUpBackend(statusEl);
+                if (!awake) { showError('Server is taking too long to respond. Please try again in a moment.'); return; }
+                hideError();
+
+                const res = await fetch('/api/auth/signup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ username: username.trim(), email: email.trim(), password, confirm_password: confirmPassword })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.success) throw new Error(data.error || 'Registration failed.');
+                localStorage.setItem('boardai_user', JSON.stringify(data.user));
+                showToast(`Welcome to BoardAI, ${data.user.username}!`, 'success');
+                setTimeout(() => { window.location.href = '/'; }, 800);
+            } catch (err) {
+                showError(humaniseNetworkError(err));
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    const sp = submitBtn.querySelector('span');
+                    if (sp) sp.textContent = 'Create Account';
                 }
             }
         });

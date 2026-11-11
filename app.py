@@ -81,6 +81,7 @@ app.config.update(
 
 # Item 2: Explicit Trusted CORS Origins (No wildcard + credential conflicts)
 DEFAULT_TRUSTED_ORIGINS = [
+    "https://classroom-tan-iota.vercel.app",
     "https://classroom-swart-one.vercel.app",
     "https://classroom-theta-silk.vercel.app",
     "https://classroom-board-ai.onrender.com",
@@ -103,7 +104,7 @@ def is_origin_allowed(origin: str | None) -> bool:
         return False
     if origin in TRUSTED_ORIGINS:
         return True
-    # Match project-specific Vercel preview deployments
+    # Match any classroom-* Vercel preview/production deployment
     if re.match(r"^https://classroom-[a-zA-Z0-9_-]+\.vercel\.app$", origin):
         return True
     # Match local development hosts on any valid port
@@ -113,9 +114,11 @@ def is_origin_allowed(origin: str | None) -> bool:
 
 
 if HAS_CORS:
+    # Pass the validator function directly so flask-cors uses the same regex logic
+    # as our @after_request handler (fixes preflight rejection for new Vercel URLs)
     CORS(
         app,
-        origins=TRUSTED_ORIGINS,
+        origins=is_origin_allowed,
         supports_credentials=True,
         allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
         methods=["GET", "POST", "OPTIONS", "HEAD", "PUT", "DELETE"]
@@ -225,7 +228,12 @@ def inject_global_template_context():
         # Clear stale session if user no longer exists in database
         session.clear()
 
-    backend_url = os.environ.get("BACKEND_URL", "").rstrip("/")
+    backend_url = (os.environ.get("BACKEND_URL") or "").strip().rstrip("/")
+    if not backend_url:
+        try:
+            backend_url = request.url_root.rstrip("/")
+        except RuntimeError:
+            backend_url = ""
     return {
         "current_user": user,
         "backend_url": backend_url,
