@@ -81,6 +81,7 @@ app.config.update(
 
 # Item 2: Explicit Trusted CORS Origins (No wildcard + credential conflicts)
 DEFAULT_TRUSTED_ORIGINS = [
+    "https://classroom-swart-one.vercel.app",
     "https://classroom-theta-silk.vercel.app",
     "https://classroom-board-ai.onrender.com",
     "http://localhost:3000",
