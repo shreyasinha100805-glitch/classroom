@@ -70,12 +70,9 @@ function initAuthState() {
         logoutBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             localStorage.removeItem('boardai_user');
-            const baseUrl = getApiBaseUrl();
-            if (baseUrl) {
-                try {
-                    await fetch(`${baseUrl}/api/auth/logout`, { method: 'POST' });
-                } catch (err) {}
-            }
+            try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+            } catch (err) {}
             showToast('You have been logged out.', 'info');
             initAuthState();
             setTimeout(() => { window.location.href = '/'; }, 600);
@@ -725,72 +722,66 @@ function initUploadDropzone() {
         return false; // timed out
     }
 
-    // Submit animation and loading screen (with AJAX upload fallback for decoupled Vercel -> Render)
+    // Submit handler — always intercept; use Vercel proxy /api/upload → Render backend
     if (uploadForm) {
         uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
             if (!fileInput.files || fileInput.files.length === 0) {
-                e.preventDefault();
                 showToast('Please select at least one board image.', 'error');
                 return;
             }
 
-            const baseUrl = getApiBaseUrl();
-            const isSameOriginUpload = isSameOriginBackendHost();
-            if (baseUrl || isSameOriginUpload) {
-                e.preventDefault();
-                showUploadLoadingOverlay();
+            showUploadLoadingOverlay();
 
-                const overlay = document.getElementById('processing-overlay');
-                const statusEl = document.getElementById('processing-status');
-                const tagEl = document.getElementById('modal-step-tag');
-                const barFill = document.getElementById('progress-bar-fill');
+            const overlay = document.getElementById('processing-overlay');
+            const statusEl = document.getElementById('processing-status');
+            const tagEl = document.getElementById('modal-step-tag');
+            const barFill = document.getElementById('progress-bar-fill');
 
-                // Wake up Render backend before uploading
-                const isAwake = await wakeUpBackend(statusEl, tagEl, barFill);
-                if (!isAwake) {
-                    if (overlay) overlay.classList.remove('active');
-                    showToast('Server is taking too long to wake up. Please wait 30 seconds and try again.', 'error', 8000);
-                    return;
-                }
-
-                const formData = new FormData();
-                Array.from(fileInput.files).forEach((f) => formData.append('images', f));
-
-                try {
-                    if (tagEl) tagEl.textContent = 'STAGE 1.0';
-                    if (statusEl) statusEl.textContent = '1.0 Image Upload & Validation: Uploading and validating classroom-board image...';
-                    if (barFill) barFill.style.width = '55%';
-
-                    const uploadEndpoint = (baseUrl || window.location.origin) + '/api/upload';
-                    const res = await fetch(uploadEndpoint, {
-                        method: 'POST',
-                        body: formData,
-                        headers: { 'Accept': 'application/json' }
-                    });
-                    if (!res.ok) {
-                        const errData = await res.json().catch(() => ({}));
-                        throw new Error(errData.error || `Upload failed with HTTP status ${res.status}`);
-                    }
-                    const data = await res.json();
-                    if (data.success && data.files) {
-                        sessionStorage.setItem('boardai_latest_uploads', JSON.stringify(data.files));
-                        showToast(`Successfully uploaded ${data.files.length} images!`, 'success');
-                        window.location.href = '/result.html';
-                    } else {
-                        throw new Error(data.error || 'Upload could not be processed.');
-                    }
-                } catch (err) {
-                    if (overlay) overlay.classList.remove('active');
-                    const msg = err && err.message === 'Failed to fetch'
-                        ? 'Server went offline. Please wait 30 seconds and try again.'
-                        : `Upload failed: ${err.message}`;
-                    showToast(msg, 'error', 8000);
-                }
+            // Wake up Render backend before uploading
+            const isAwake = await wakeUpBackend(statusEl, tagEl, barFill);
+            if (!isAwake) {
+                if (overlay) overlay.classList.remove('active');
+                showToast('Server is taking too long to wake up. Please wait 30 seconds and try again.', 'error', 8000);
                 return;
             }
 
-            showToast('Upload backend is not configured. Set BACKEND_URL to your Python API before uploading.', 'error', 6000);
-            return;
+            // Build FormData — do NOT set Content-Type; browser sets multipart boundary automatically
+            const formData = new FormData();
+            Array.from(fileInput.files).forEach((f) => formData.append('images', f));
+
+            try {
+                if (tagEl) tagEl.textContent = 'STAGE 1.0';
+                if (statusEl) statusEl.textContent = '1.0 Image Upload & Validation: Uploading and validating classroom-board image...';
+                if (barFill) barFill.style.width = '55%';
+
+                // /api/upload is proxied by vercel.json → https://classroom-backend-cp6o.onrender.com/api/upload
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'Accept': 'application/json' }
+                    // Content-Type intentionally omitted — browser sets multipart/form-data boundary
+                });
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.error || `Upload failed with HTTP status ${res.status}`);
+                }
+                const data = await res.json();
+                if (data.success && data.files) {
+                    sessionStorage.setItem('boardai_latest_uploads', JSON.stringify(data.files));
+                    showToast(`Successfully uploaded ${data.files.length} images!`, 'success');
+                    window.location.href = '/result.html';
+                } else {
+                    throw new Error(data.error || 'Upload could not be processed.');
+                }
+            } catch (err) {
+                if (overlay) overlay.classList.remove('active');
+                const msg = err && err.message === 'Failed to fetch'
+                    ? 'Server went offline. Please wait 30 seconds and try again.'
+                    : `Upload failed: ${err.message}`;
+                showToast(msg, 'error', 8000);
+            }
         });
     }
 
@@ -853,17 +844,10 @@ async function loadDecoupledGallery(galleryGrid) {
         if (stored) files = JSON.parse(stored);
     } catch (e) {}
 
-    const baseUrl = getApiBaseUrl();
     if (!files || files.length === 0) {
-        if (!baseUrl && !isSameOriginBackendHost()) {
-            const emptyState = document.getElementById('gallery-empty-state');
-            const countPill = document.getElementById('gallery-count-pill');
-            if (emptyState) emptyState.style.display = 'block';
-            if (countPill) countPill.textContent = 'No backend configured';
-            return;
-        }
         try {
-            const res = await fetch(`${baseUrl || window.location.origin}/api/files`, { headers: { 'Accept': 'application/json' } });
+            // /api/files is proxied by vercel.json → Render backend
+            const res = await fetch('/api/files', { headers: { 'Accept': 'application/json' } });
             if (res.ok) {
                 const data = await res.json();
                 if (data.success && data.files) files = data.files;
@@ -899,7 +883,8 @@ async function loadDecoupledGallery(galleryGrid) {
         card.style.animationDelay = `${idx * 0.08}s`;
 
         const numStr = String(idx + 1).padStart(2, '0');
-        const imgUrl = `${baseUrl}/uploads/${encodeURIComponent(file.saved_name)}`;
+        // /uploads/* is proxied by vercel.json → Render backend
+        const imgUrl = `/uploads/${encodeURIComponent(file.saved_name)}`;
 
         card.innerHTML = `
             <div class="card-media-box" title="Click to inspect full resolution">
@@ -1164,17 +1149,10 @@ function initAnalysisDrawer() {
         drawer.classList.add('open');
         showDrawerLoading(originalName);
 
-        const apiBaseUrl = getApiBaseUrl();
-        if (!apiBaseUrl && !isSameOriginBackendHost()) {
-            renderDrawerError('No backend is configured to run the AI analysis pipeline. Set BACKEND_URL or run the Python backend on this host.', savedName, originalName);
-            return;
-        }
-
-        // Fetch backend AI analysis with 180s timeout controller
+        // /api/analyze/* is proxied by vercel.json → Render backend
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 180000);
-
-        fetch(`${apiBaseUrl || window.location.origin}/api/analyze/${encodeURIComponent(savedName)}`, {
+        fetch(`/api/analyze/${encodeURIComponent(savedName)}`, {
             signal: controller.signal
         })
             .then(async (res) => {
@@ -1206,8 +1184,7 @@ function initAnalysisDrawer() {
                 if (err.name === 'AbortError') {
                     msg = 'Pipeline inference timed out. High-resolution OCR is still completing on CPU.';
                 } else if (msg === 'Failed to fetch') {
-                    const activeUrl = getApiBaseUrl() || 'http://127.0.0.1:5000';
-                    msg = `Cannot reach backend server at ${activeUrl}. Ensure the Python backend service is active and accessible.`;
+                    msg = `Cannot reach backend server. Ensure the Render backend service is active and accessible.`;
                 }
                 renderDrawerError(msg, savedName, originalName);
             });
@@ -1536,7 +1513,7 @@ function initAnalysisDrawer() {
                         </a>
                     </div>
                     <div class="drawer-preview-img-wrap" style="border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border-subtle); max-height: 220px; display: flex; align-items: center; justify-content: center; background: #000; position: relative;">
-                        <img src="${getApiBaseUrl()}/pipeline_output/${encodeURIComponent(data.processed_filename)}" alt="Preprocessed Preview" style="max-width: 100%; max-height: 220px; object-fit: contain;">
+                        <img src="/pipeline_output/${encodeURIComponent(data.processed_filename)}" alt="Preprocessed Preview" style="max-width: 100%; max-height: 220px; object-fit: contain;">
                         <div class="heatmap-overlay" id="heatmap-overlay"></div>
                     </div>
                     <div class="heatmap-toggle-wrap">
