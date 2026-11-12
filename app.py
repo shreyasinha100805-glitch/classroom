@@ -84,7 +84,7 @@ DEFAULT_TRUSTED_ORIGINS = [
     "https://classroom-tan-iota.vercel.app",
     "https://classroom-swart-one.vercel.app",
     "https://classroom-theta-silk.vercel.app",
-    "https://classroom-board-ai.onrender.com",
+    "https://classroom-backend-cp6o.onrender.com",
     "http://localhost:3000",
     "http://localhost:5000",
     "http://127.0.0.1:3000",
