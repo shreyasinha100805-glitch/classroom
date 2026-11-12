@@ -1,5 +1,5 @@
 # ==============================================================================
-# CLASSROOM AI - PRODUCTION PYTHON DEPENDENCIES (PYTHON 3.11.11)
+# CLASSROOM AI - PRODUCTION PYTHON DEPENDENCIES (PYTHON 3.11)
 # Optimized for Render Free/Standard, Railway, Linux & Local Environments
 # ==============================================================================
 
@@ -30,3 +30,6 @@ torchvision>=0.16.0,<0.20.0
 easyocr>=1.7.0
 scikit-image>=0.20.0,<0.25.0
 scipy>=1.11.0,<1.14.0
+
+# System monitoring — used for RSS memory logging in pipeline and analyze endpoint
+psutil>=5.9.0

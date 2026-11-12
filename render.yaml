@@ -6,7 +6,7 @@ services:
     plan: free
     branch: main
     buildCommand: "pip install --upgrade pip && pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt"
-    startCommand: "gunicorn app:app --workers 1 --threads 4 --timeout 180 --bind 0.0.0.0:$PORT"
+    startCommand: "gunicorn app:app --config gunicorn.conf.py"
     healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
@@ -15,3 +15,15 @@ services:
         value: "0"
       - key: SECRET_KEY
         generateValue: true
+      - key: TORCHDYNAMO_DISABLE
+        value: "1"
+      - key: TORCH_COMPILE_DISABLE
+        value: "1"
+      - key: TF_CPP_MIN_LOG_LEVEL
+        value: "2"
+      - key: TF_ENABLE_ONEDNN_OPTS
+        value: "0"
+      - key: CUDA_VISIBLE_DEVICES
+        value: ""
+      - key: PREPROCESS_MAX_DIM
+        value: "960"
