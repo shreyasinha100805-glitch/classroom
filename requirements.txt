@@ -13,16 +13,18 @@ gunicorn>=21.2.0
 Werkzeug>=3.0.0
 python-dotenv>=1.0.0
 
-# Numerical Computation (NumPy 1.26.4 is rock-solid for Python 3.11 with TF and PyTorch)
+# Numerical Computation (pinned for compatibility with EasyOCR/PyTorch)
 numpy==1.26.4
 
 # Computer Vision & Image Processing
 Pillow>=10.0.0,<11.1.0
 opencv-python-headless>=4.8.0,<4.11.0
 
-# Deep Learning - CNN Classifier
-tensorflow-cpu>=2.15.1,<=2.16.2
-keras>=3.0.0
+# CNN Classifier — ONNX Runtime (replaces tensorflow-cpu + keras, saves ~120 MB RSS)
+# classroom_cnn.onnx was exported from classroom_cnn.keras (Keras 3.15.1) using
+# a manual weight-extraction + PyTorch nn.Module reconstruction + torch.onnx.export.
+# The original .keras file is preserved in cnn/model/ for reference.
+onnxruntime>=1.17.0,<2.0.0
 
 # Deep Learning - OCR Text Recognition (EasyOCR + PyTorch CPU)
 torch>=2.1.0,<2.5.0

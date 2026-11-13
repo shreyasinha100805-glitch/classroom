@@ -74,7 +74,8 @@ def validate_image(image_path: str) -> dict:
     """
     1.0 Image Upload & Validation:
     User uploads the classroom-board image. Validates existence, file readability,
-    dimensions, and color channels.
+    dimensions, and color channels. Rejects images exceeding MAX_UPLOAD_PIXELS
+    to prevent decompression-bomb memory spikes during preprocessing.
     """
     if not os.path.exists(image_path):
         return {"valid": False, "error": f"Image file not found: {image_path}"}
@@ -91,6 +92,20 @@ def validate_image(image_path: str) -> dict:
         with Image.open(image_path) as img:
             width, height = img.size
             format_name = img.format or "UNKNOWN"
+
+        # Reject images that would cause excessive memory during preprocessing.
+        # 8 MP (e.g. 3264×2448) is plenty for classroom board OCR.
+        max_pixels = int(os.environ.get("MAX_UPLOAD_PIXELS", str(8_000_000)))
+        pixel_count = width * height
+        if pixel_count > max_pixels:
+            return {
+                "valid": False,
+                "error": (
+                    f"Image is too large ({width}x{height} = {pixel_count:,} pixels). "
+                    f"Maximum allowed is {max_pixels:,} pixels (~8 MP). "
+                    "Please resize your image before uploading."
+                )
+            }
 
         return {
             "valid": True,

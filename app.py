@@ -58,6 +58,16 @@ from pipeline import (
 )
 
 # ==============================================================================
+# INFERENCE CONCURRENCY GUARD
+# ==============================================================================
+# TF model.predict() and EasyOCR readtext() are NOT thread-safe when called
+# concurrently from multiple gunicorn threads. A semaphore with value=1
+# serialises all analysis requests so only one inference runs at a time.
+# Non-inference requests (health, upload, file list) are unaffected.
+import threading
+_inference_semaphore = threading.Semaphore(1)
+
+# ==============================================================================
 # FLASK APPLICATION CONFIGURATION & SECURITY HARDENING
 # ==============================================================================
 
@@ -604,6 +614,19 @@ def api_analyze_image(filename):
             "error": f"Image file '{safe_name}' not found on server. It may have expired or not yet uploaded."
         }), 404
 
+    # Serialise inference: TF model.predict() and EasyOCR readtext() are not
+    # thread-safe under concurrent gunicorn threads. The semaphore ensures only
+    # one analysis runs at a time; a second concurrent request waits rather than
+    # doubling the memory spike. acquire(blocking=False) returns False immediately
+    # if inference is already running so we can return a 503 instead of queuing.
+    acquired = _inference_semaphore.acquire(blocking=True, timeout=120)
+    if not acquired:
+        logger.warning("[Analyze] Inference semaphore timeout for %s — server busy", safe_name)
+        return jsonify({
+            "success": False,
+            "error": "The server is currently processing another image. Please retry in a moment."
+        }), 503
+
     logger.info("[Analyze] Starting pipeline for: %s", safe_name)
     try:
         import psutil
@@ -633,6 +656,8 @@ def api_analyze_image(filename):
             "error": "The AI pipeline encountered an error processing the image. Please try another capture.",
             "detail": str(exc)
         }), 500
+    finally:
+        _inference_semaphore.release()
 
 
 @app.route("/api/export-notes/<filename>", methods=["GET"])
@@ -643,6 +668,10 @@ def export_notes(filename):
 
     if not os.path.exists(image_path):
         return jsonify({"error": "Image file not found"}), 404
+
+    acquired = _inference_semaphore.acquire(blocking=True, timeout=120)
+    if not acquired:
+        return jsonify({"error": "Server is busy processing another image. Please retry."}), 503
 
     try:
         result = run_pipeline_data(image_path)
@@ -665,6 +694,8 @@ def export_notes(filename):
     except Exception as exc:
         app.logger.error(f"Export notes error on {safe_name}: {exc}", exc_info=True)
         return jsonify({"error": "Unable to export notes."}), 500
+    finally:
+        _inference_semaphore.release()
 
 
 # ==============================================================================

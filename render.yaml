@@ -27,3 +27,5 @@ services:
         value: ""
       - key: PREPROCESS_MAX_DIM
         value: "960"
+      - key: MAX_UPLOAD_PIXELS
+        value: "8000000"
