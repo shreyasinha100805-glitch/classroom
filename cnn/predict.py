@@ -18,11 +18,10 @@ logger = logging.getLogger(__name__)
 #   CLASS_NAMES         -> ["background", "board", "text"]
 #   IMAGE_SIZE          -> (128, 128)
 #
-# Input contract (preserved from Keras version):
-#   predict_image() divides pixel values by 255 before passing to the session.
-#   The ONNX model itself also applies a /255 Rescaling layer baked in at export.
-#   Net result: pixels are divided by 255 twice (same behaviour as Keras version).
-#   This is intentional — changing it would shift all predictions.
+# Input contract:
+#   Input image is resized to 128×128 RGB and passed as float32 in [0, 255].
+#   The ONNX model includes an internal /255 Rescaling layer matching Keras Rescaling(1./255).
+#   Normalization occurs exactly once inside the computational graph.
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_MODEL_PATH = os.path.join(BASE_DIR, "model", "classroom_cnn.onnx")
@@ -66,14 +65,14 @@ def get_model():
             return _session
 
         # Locate ONNX model file, with fallback to .keras path for error clarity
-        target_path = MODEL_PATH
+        target_path = os.environ.get("CNN_MODEL_PATH", MODEL_PATH)
         if not os.path.exists(target_path):
             alt_path = os.path.join(os.getcwd(), "cnn", "model", "classroom_cnn.onnx")
-            if os.path.exists(alt_path):
+            if target_path == DEFAULT_MODEL_PATH and os.path.exists(alt_path):
                 target_path = alt_path
             else:
                 raise FileNotFoundError(
-                    f"Classroom CNN ONNX model not found at '{target_path}' or '{alt_path}'. "
+                    f"Classroom CNN ONNX model not found at '{target_path}'. "
                     f"Ensure classroom_cnn.onnx is present in cnn/model/."
                 )
 
@@ -109,12 +108,9 @@ def predict_image(image_path: str) -> dict:
     """
     Predict classroom board content type: 'board', 'text', or 'background'.
 
-    Normalises pixel values to [0, 1] before inference (preserves the
-    same input contract as the previous Keras version — the ONNX model
-    also applies an internal /255 Rescaling layer).
-
-    Input image is resized to 128×128; no extra copies are retained
-    after prediction.
+    Input image is resized to 128×128 RGB float32. The ONNX model applies
+    internal /255 rescaling matching the original Keras Rescaling(1./255) layer.
+    No extra copies are retained after prediction.
 
     Returns:
         {
@@ -135,7 +131,7 @@ def predict_image(image_path: str) -> dict:
 
     with Image.open(image_path) as pil_img:
         rgb = pil_img.convert("RGB").resize(IMAGE_SIZE)
-        image_array = np.array(rgb, dtype=np.float32) / 255.0  # normalise to [0, 1]
+        image_array = np.array(rgb, dtype=np.float32)  # [0, 255] float32; ONNX model applies /255 internally
 
     image_array = np.expand_dims(image_array, axis=0)   # (1, 128, 128, 3)
     logger.info("CNN predict: running ONNX inference")
