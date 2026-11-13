@@ -1,11 +1,27 @@
 import os
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+import logging
 
-# Early import of torch to ensure C10 registry stability with TensorFlow
-try:
-    import torch
-except Exception:
-    pass
+# ---------------------------------------------------------------------------
+# Environment flags — set BEFORE any heavy framework imports so that
+# torch._dynamo, sympy, and torch.compile infrastructure are never loaded.
+# This saves ~65 MB RSS on Render's 512 MB free tier.
+# ---------------------------------------------------------------------------
+os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
+os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")       # suppress TF C++ INFO/WARNING spam
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")     # OpenMP compat on some Linux builds
+# TensorFlow memory reduction flags (saves ~20-40 MB RSS on CPU-only deploys)
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")       # disable oneDNN kernel overhead
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")         # prevent TF scanning for GPU hardware
+os.environ.setdefault("TF_FORCE_GPU_ALLOW_GROWTH", "true") # don't pre-allocate GPU pools
+
+# Configure structured logging before any module uses the logger
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 
 import time
 import secrets
@@ -40,6 +56,16 @@ from pipeline import (
     run_pipeline_data,
     validate_image,
 )
+
+# ==============================================================================
+# INFERENCE CONCURRENCY GUARD
+# ==============================================================================
+# TF model.predict() and EasyOCR readtext() are NOT thread-safe when called
+# concurrently from multiple gunicorn threads. A semaphore with value=1
+# serialises all analysis requests so only one inference runs at a time.
+# Non-inference requests (health, upload, file list) are unaffected.
+import threading
+_inference_semaphore = threading.Semaphore(1)
 
 # ==============================================================================
 # FLASK APPLICATION CONFIGURATION & SECURITY HARDENING
@@ -588,15 +614,50 @@ def api_analyze_image(filename):
             "error": f"Image file '{safe_name}' not found on server. It may have expired or not yet uploaded."
         }), 404
 
-    try:
-        result = run_pipeline_data(image_path)
-        return jsonify(result), 200
-    except Exception as exc:
-        app.logger.error(f"AI pipeline execution failure on {safe_name}: {exc}", exc_info=True)
+    # Serialise inference: TF model.predict() and EasyOCR readtext() are not
+    # thread-safe under concurrent gunicorn threads. The semaphore ensures only
+    # one analysis runs at a time; a second concurrent request waits rather than
+    # doubling the memory spike. acquire(blocking=False) returns False immediately
+    # if inference is already running so we can return a 503 instead of queuing.
+    acquired = _inference_semaphore.acquire(blocking=True, timeout=120)
+    if not acquired:
+        logger.warning("[Analyze] Inference semaphore timeout for %s — server busy", safe_name)
         return jsonify({
             "success": False,
-            "error": "The AI pipeline encountered an error processing the image. Please try another capture."
+            "error": "The server is currently processing another image. Please retry in a moment."
+        }), 503
+
+    logger.info("[Analyze] Starting pipeline for: %s", safe_name)
+    try:
+        import psutil
+        rss_before = psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024
+    except ImportError:
+        rss_before = None
+
+    try:
+        result = run_pipeline_data(image_path)
+
+        try:
+            import psutil
+            rss_after = psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024
+            logger.info("[Analyze] Complete. RSS before=%.1f MB after=%.1f MB delta=%.1f MB",
+                        rss_before, rss_after, rss_after - rss_before)
+        except ImportError:
+            pass
+
+        return jsonify(result), 200
+    except Exception as exc:
+        import traceback
+        app.logger.error(
+            "[Analyze] Pipeline FAILED for %s:\n%s", safe_name, traceback.format_exc()
+        )
+        return jsonify({
+            "success": False,
+            "error": "The AI pipeline encountered an error processing the image. Please try another capture.",
+            "detail": str(exc)
         }), 500
+    finally:
+        _inference_semaphore.release()
 
 
 @app.route("/api/export-notes/<filename>", methods=["GET"])
@@ -607,6 +668,10 @@ def export_notes(filename):
 
     if not os.path.exists(image_path):
         return jsonify({"error": "Image file not found"}), 404
+
+    acquired = _inference_semaphore.acquire(blocking=True, timeout=120)
+    if not acquired:
+        return jsonify({"error": "Server is busy processing another image. Please retry."}), 503
 
     try:
         result = run_pipeline_data(image_path)
@@ -629,6 +694,8 @@ def export_notes(filename):
     except Exception as exc:
         app.logger.error(f"Export notes error on {safe_name}: {exc}", exc_info=True)
         return jsonify({"error": "Unable to export notes."}), 500
+    finally:
+        _inference_semaphore.release()
 
 
 # ==============================================================================
