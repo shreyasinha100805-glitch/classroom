@@ -1,28 +1,27 @@
 # gunicorn.conf.py — Render production configuration
-# Tuned for Render free-tier (512 MB RAM) running TF + PyTorch + EasyOCR
+# Tuned for Render free-tier (512 MB RAM) running RapidOCR + ONNX Runtime.
+# No PyTorch or EasyOCR required in this stack.
 import os
 
 # --- Worker configuration ---
-# 1 worker: TensorFlow, Keras, and EasyOCR models are loaded once per process.
-# Multiple workers would multiply RSS by N (each loads its own TF + EasyOCR copy).
+# 1 worker: ONNX models are loaded once per process.
+# Multiple workers would multiply RSS by N (each loads its own CNN + OCR models).
 workers = 1
 
-# 2 threads (reduced from 4):
-# - Allows concurrent lightweight requests (health, file list, upload) while
-#   one thread runs OCR inference.
-# - Reduced from 4 because TF model.predict() is NOT thread-safe without
-#   explicit locking. The analyze endpoint uses a semaphore (see app.py)
-#   to serialise inference, so more threads provide no extra throughput for
-#   analysis and would only risk concurrent TF calls if the semaphore were removed.
+# 2 threads:
+# - Allows lightweight concurrent requests (health, upload, gallery) while
+#   one thread runs inference.
+# - The /api/analyze endpoint uses threading.Semaphore(1) to serialise inference,
+#   so more threads provide no extra throughput for analysis.
 threads = 2
 
 # Worker class — sync is correct for CPU-bound inference.
 worker_class = "sync"
 
 # --- Timeout ---
-# EasyOCR on a cold start (first request, model download) can take >60s.
-# Subsequent requests on a warm worker typically complete in 10-40s.
-timeout = 180
+# RapidOCR on a cold start (first request, model download ~8 MB) can take >30s.
+# Subsequent requests on a warm worker typically complete in 2-5s.
+timeout = 120
 
 # --- Binding ---
 # Render injects PORT as an environment variable. gunicorn.conf.py is a plain
@@ -37,14 +36,29 @@ loglevel = "info"
 access_log_format = '%(h)s "%(r)s" %(s)s %(b)s %(D)sus'
 
 # --- Memory management ---
-# Restart a worker after 50 requests to prevent slow RSS growth
-# from TF/PyTorch internal caches accumulating over many requests.
-max_requests = 50
-max_requests_jitter = 5
+# Restart a worker after 100 requests to prevent slow RSS growth
+# from ONNX Runtime internal caches accumulating over many requests.
+# Higher than the previous 50 (EasyOCR stack) since RapidOCR's
+# per-request memory growth is minimal.
+max_requests = 100
+max_requests_jitter = 10
 
 # Preload the app in the master process so model weights are loaded once
-# and copy-on-write shared with any additional workers if ever scaled up.
-# NOTE: With workers=1, this provides no memory saving today but ensures
-# models are initialised before the worker starts serving requests, so the
-# first analysis request does not pay the cold-start penalty.
+# before the worker starts serving requests (no cold-start penalty on first request).
 preload_app = True
+
+# --- CPU thread limits (saves ~5-10 MB RSS on single-core Render instances) ---
+# Applied before workers fork so each worker inherits the limits.
+# OpenCV: limits CPU thread pool used for image decode/resize.
+try:
+    import cv2
+    cv2.setNumThreads(1)
+except Exception:
+    pass
+
+# ONNX Runtime: thread limits are set per-session in cnn/predict.py
+# (inter_op_num_threads=1, intra_op_num_threads=1).
+# RapidOCR uses ONNX Runtime internally; it respects OMP_NUM_THREADS.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
