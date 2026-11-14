@@ -1,10 +1,19 @@
 # ==============================================================================
 # CLASSROOM AI - PRODUCTION PYTHON DEPENDENCIES (PYTHON 3.11)
-# Optimized for Render Free/Standard, Railway, Linux & Local Environments
+# Optimized for Render Free Tier (512 MB RAM limit)
 # ==============================================================================
-
-# PyTorch CPU Index for lightweight Linux builds (avoids 4.5GB CUDA bloat)
---extra-index-url https://download.pytorch.org/whl/cpu
+#
+# Memory architecture (measured local RSS):
+#   Python baseline:          ~30 MB
+#   ONNX Runtime (CNN):       ~37 MB
+#   OpenCV:                   ~5 MB
+#   RapidOCR (ONNX Runtime):  ~37 MB (init) + ~7 MB (inference)
+#   Total peak:               ~120 MB  →  391 MB headroom vs 512 MB limit
+#
+# EasyOCR + PyTorch was removed because:
+#   PyTorch import alone:     +163 MB RSS
+#   EasyOCR Reader init:      +290 MB RSS
+#   Total peak:                530 MB  →  EXCEEDS 512 MB limit → HTTP 502
 
 # Web Framework & Production WSGI
 Flask>=3.0.0,<4.0.0
@@ -13,25 +22,28 @@ gunicorn>=21.2.0
 Werkzeug>=3.0.0
 python-dotenv>=1.0.0
 
-# Numerical Computation (pinned for compatibility with EasyOCR/PyTorch)
-numpy==1.26.4
+# Numerical Computation
+numpy>=1.24.0,<3.0.0
 
 # Computer Vision & Image Processing
-Pillow>=10.0.0,<11.1.0
-opencv-python-headless>=4.8.0,<4.11.0
+Pillow>=10.0.0,<13.0.0
+opencv-python-headless>=4.8.0,<5.1.0
 
-# CNN Classifier — ONNX Runtime (replaces tensorflow-cpu + keras, saves ~120 MB RSS)
-# classroom_cnn.onnx was exported from classroom_cnn.keras (Keras 3.15.1) using
-# a manual weight-extraction + PyTorch nn.Module reconstruction + torch.onnx.export.
-# The original .keras file is preserved in cnn/model/ for reference.
+# CNN Classifier — ONNX Runtime CPU
+# classroom_cnn.onnx exported from classroom_cnn.keras (preserved for reference)
+# Input: [batch, 128, 128, 3] float32 in [0,255]; internal /255 rescaling in graph
+# Output classes: background, board, text
 onnxruntime>=1.17.0,<2.0.0
 
-# Deep Learning - OCR Text Recognition (EasyOCR + PyTorch CPU)
-torch>=2.1.0,<2.5.0
-torchvision>=0.16.0,<0.20.0
-easyocr>=1.7.0
-scikit-image>=0.20.0,<0.25.0
-scipy>=1.11.0,<1.14.0
+# OCR Text Extraction — RapidOCR ONNX Runtime (replaces EasyOCR + PyTorch)
+# Pure ONNX Runtime CPU inference. No PyTorch required.
+# Models: DBNet (detection) + PP-OCRv4 (recognition) — ~8 MB total on disk.
+# Saves ~410 MB RSS vs EasyOCR+PyTorch on Render's 512 MB free tier.
+rapidocr-onnxruntime>=1.3.0,<2.0.0
 
-# System monitoring — used for RSS memory logging in pipeline and analyze endpoint
+# NLP dependencies (keyword extraction, topic detection)
+# Note: scikit-image and scipy were EasyOCR transitive dependencies — removed.
+# If NLP modules require them directly, re-add with justification.
+
+# System monitoring — RSS logging in pipeline and analyze endpoint
 psutil>=5.9.0

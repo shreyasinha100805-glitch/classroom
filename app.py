@@ -2,18 +2,22 @@ import os
 import logging
 
 # ---------------------------------------------------------------------------
-# Environment flags — set BEFORE any heavy framework imports so that
-# torch._dynamo, sympy, and torch.compile infrastructure are never loaded.
-# This saves ~65 MB RSS on Render's 512 MB free tier.
+# CPU / ONNX thread limits — set BEFORE any imports.
+# Limits OpenCV and ONNX Runtime CPU thread pools on Render's single-core
+# free-tier instance. Reduces peak RSS and prevents thread over-subscription.
+# OMP/MKL/OPENBLAS: also constrain RapidOCR's ONNX Runtime thread pools.
 # ---------------------------------------------------------------------------
-os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
-os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")       # suppress TF C++ INFO/WARNING spam
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")     # OpenMP compat on some Linux builds
-# TensorFlow memory reduction flags (saves ~20-40 MB RSS on CPU-only deploys)
-os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")       # disable oneDNN kernel overhead
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")         # prevent TF scanning for GPU hardware
-os.environ.setdefault("TF_FORCE_GPU_ALLOW_GROWTH", "true") # don't pre-allocate GPU pools
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")         # prevent CUDA scanning
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")     # OpenMP compat on Linux
+
+try:
+    import cv2
+    cv2.setNumThreads(1)
+except Exception:
+    pass
 
 # Configure structured logging before any module uses the logger
 logging.basicConfig(
@@ -274,22 +278,56 @@ def inject_global_template_context():
 @app.route("/health", methods=["GET"])
 @app.route("/api/health", methods=["GET"])
 def health_check():
-    """Fast health check route for Render, Vercel, and uptime probes."""
-    cnn_model_file = os.environ.get(
-        "CNN_MODEL_PATH",
-        os.path.join(os.path.dirname(__file__), "cnn", "model", "classroom_cnn.keras")
-    )
-    model_exists = os.path.exists(cnn_model_file)
+    """
+    Fast health check route for Render, Vercel, and uptime probes.
 
-    return jsonify({
+    Reports the actual active CNN model (classroom_cnn.onnx, not .keras).
+    OCR status is reported via three distinct fields:
+      - ocr_configured: rapidocr-onnxruntime package is importable
+      - ocr_initialized: RapidOCR singleton is loaded in memory (warm)
+      - ocr_ready: same as ocr_initialized (alias for frontend compatibility)
+    Does NOT trigger OCR model loading — health check is always fast.
+    """
+    # CNN: production inference uses classroom_cnn.onnx via onnxruntime.
+    _default_onnx = os.path.join(
+        os.path.dirname(__file__), "cnn", "model", "classroom_cnn.onnx"
+    )
+    cnn_model_file = os.environ.get("CNN_MODEL_PATH", _default_onnx)
+    cnn_model_ready = os.path.exists(cnn_model_file)
+
+    # OCR: use extractor helpers — no model loading triggered here.
+    try:
+        from ocr.extractor import ocr_is_configured, ocr_is_initialized
+        ocr_configured = ocr_is_configured()
+        ocr_initialized = ocr_is_initialized()
+    except Exception:
+        ocr_configured = False
+        ocr_initialized = False
+
+    # Current process RSS (for memory monitoring via health probe).
+    rss_mb = None
+    try:
+        import psutil
+        rss_mb = round(psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024, 1)
+    except Exception:
+        pass
+
+    payload = {
         "status": "healthy",
         "service": "AI Classroom Board Content Extractor",
         "version": "2.0.0",
         "timestamp": int(time.time()),
         "cnn_model_file": os.path.basename(cnn_model_file),
-        "cnn_model_ready": model_exists,
-        "ocr_engine_ready": True
-    }), 200
+        "cnn_model_ready": cnn_model_ready,
+        "ocr_engine": "RapidOCR (ONNX Runtime)",
+        "ocr_configured": ocr_configured,
+        "ocr_initialized": ocr_initialized,
+        "ocr_engine_ready": ocr_initialized,  # kept for frontend compatibility
+    }
+    if rss_mb is not None:
+        payload["rss_mb"] = rss_mb
+
+    return jsonify(payload), 200
 
 
 @app.route("/favicon.ico")
