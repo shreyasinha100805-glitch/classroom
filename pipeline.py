@@ -253,7 +253,17 @@ def run_pipeline(image_path: str):
 # ==============================================================================
 # STRUCTURED DATA RETURN FOR FLASK API & CLIENT DASHBOARDS
 # ==============================================================================
-def run_pipeline_data(image_path: str) -> dict:
+def _report_stage(progress_callback, stage_title: str):
+    """Report UI progress without allowing telemetry failures to break inference."""
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(stage_title)
+    except Exception:
+        logger.exception("[Pipeline] Stage progress callback failed")
+
+
+def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
     """
     Executes the complete 6-stage pipeline and returns structured data
     for web clients, API consumers, and UI visualisation.
@@ -271,6 +281,7 @@ def run_pipeline_data(image_path: str) -> dict:
     # -------------------------------------------------------------------------
     # 1.0 Image Upload & Validation
     # -------------------------------------------------------------------------
+    _report_stage(progress_callback, "Image Upload & Validation")
     logger.info("[Pipeline 1.0] Validating image: %s", image_path)
     _log_memory("before-validation")
     val = validate_image(image_path)
@@ -284,6 +295,7 @@ def run_pipeline_data(image_path: str) -> dict:
 
     logger.info("[Pipeline 1.0] OK — %s (%dx%d, %s)",
                 val["filename"], val["width"], val["height"], val["format"])
+    _log_memory("after-validation")
     stages_log.append({
         "step": "1.0",
         "title": "Image Upload & Validation",
@@ -295,6 +307,7 @@ def run_pipeline_data(image_path: str) -> dict:
     # -------------------------------------------------------------------------
     # 2.0 Image Preprocessing
     # -------------------------------------------------------------------------
+    _report_stage(progress_callback, "Image Preprocessing")
     os.makedirs(PIPELINE_OUTPUT_FOLDER, exist_ok=True)
     base_name = os.path.basename(image_path)
     processed_path = os.path.join(PIPELINE_OUTPUT_FOLDER, f"proc_{base_name}")
@@ -305,6 +318,7 @@ def run_pipeline_data(image_path: str) -> dict:
         from preprocessing.image_processing import preprocess_image
         preprocess_image(image_path, processed_path)
         logger.info("[Pipeline 2.0] OK — saved %s", os.path.basename(processed_path))
+        _log_memory("after-preprocess")
         stages_log.append({
             "step": "2.0",
             "title": "Image Preprocessing",
@@ -323,6 +337,7 @@ def run_pipeline_data(image_path: str) -> dict:
     # -------------------------------------------------------------------------
     # 3.0 CNN Classification
     # -------------------------------------------------------------------------
+    _report_stage(progress_callback, "CNN Classification")
     cnn_probabilities = {}
     logger.info("[Pipeline 3.0] Running CNN classification")
     _log_memory("before-cnn")
@@ -359,20 +374,32 @@ def run_pipeline_data(image_path: str) -> dict:
     # -------------------------------------------------------------------------
     # 4.0 OCR Text Extraction
     # -------------------------------------------------------------------------
+    _report_stage(progress_callback, "OCR Text Extraction")
     logger.info("[Pipeline 4.0] Running OCR extraction")
     _log_memory("before-ocr")
     try:
-        from ocr.extractor import extract_text
+        from ocr.extractor import OCREngineUnavailable, extract_text
         ocr_results = extract_text(processed_path)
         extracted_text = []
         ocr_clean = []
         if ocr_results:
             for item in ocr_results:
+                if not isinstance(item, dict):
+                    logger.warning("[Pipeline 4.0] Ignoring malformed OCR item: %r", item)
+                    continue
                 txt = item.get("text", "")
-                conf = float(item.get("confidence", 0.0))
-                ocr_clean.append({"text": txt, "confidence": round(conf, 2)})
+                try:
+                    conf = float(item.get("confidence", 0.0))
+                except (TypeError, ValueError):
+                    logger.warning("[Pipeline 4.0] Ignoring OCR item with invalid confidence: %r", item)
+                    continue
+                clean_item = {"text": str(txt), "confidence": round(conf, 2)}
+                bbox = item.get("bbox")
+                if isinstance(bbox, (list, tuple)):
+                    clean_item["bbox"] = bbox
+                ocr_clean.append(clean_item)
                 if conf >= 0.40:
-                    extracted_text.append(txt)
+                    extracted_text.append(str(txt))
         combined_text = " ".join(extracted_text)
         logger.info("[Pipeline 4.0] OK — %d segments, %d chars",
                     len(ocr_clean), len(combined_text))
@@ -383,17 +410,14 @@ def run_pipeline_data(image_path: str) -> dict:
             "status": "completed",
             "details": f"Extracted {len(ocr_clean)} text segments ({len(combined_text)} characters)"
         })
+    except OCREngineUnavailable:
+        logger.error("[Pipeline 4.0] OCR service unavailable", exc_info=True)
+        raise
     except Exception as exc:
         logger.error("[Pipeline 4.0] FAILED:\n%s", traceback.format_exc())
-        ocr_clean = []
-        combined_text = ""
-        stages_log.append({
-            "step": "4.0",
-            "title": "OCR Text Extraction",
-            "description": "OCR reads and extracts text from the classroom image.",
-            "status": "warning",
-            "details": f"OCR extraction issue: {str(exc)}"
-        })
+        raise
+
+    _log_memory("after-ocr")
 
     # Explicit GC after OCR — releases PyTorch intermediate tensors back to OS
     _log_memory("before-gc")
@@ -403,7 +427,9 @@ def run_pipeline_data(image_path: str) -> dict:
     # -------------------------------------------------------------------------
     # 5.0 NLP Analysis
     # -------------------------------------------------------------------------
+    _report_stage(progress_callback, "NLP Analysis")
     logger.info("[Pipeline 5.0] Running NLP analysis")
+    _log_memory("before-nlp")
     try:
         from nlp.keywords import extract_keywords
         from nlp.topics import detect_topics
@@ -429,11 +455,14 @@ def run_pipeline_data(image_path: str) -> dict:
             "status": "warning",
             "details": f"NLP analysis fallback: {str(exc)}"
         })
+    _log_memory("after-nlp")
 
     # -------------------------------------------------------------------------
     # 6.0 Structured Notes Generation
     # -------------------------------------------------------------------------
+    _report_stage(progress_callback, "Structured Notes Generation")
     logger.info("[Pipeline 6.0] Generating structured notes")
+    _log_memory("before-notes")
     try:
         from nlp.notes import generate_structured_notes
         structured_notes = generate_structured_notes(
@@ -468,6 +497,7 @@ def run_pipeline_data(image_path: str) -> dict:
             "status": "warning",
             "details": f"Structured notes generated with fallback: {str(exc)}"
         })
+    _log_memory("after-notes")
 
     _log_memory("pipeline-complete")
     return {

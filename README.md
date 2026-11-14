@@ -61,9 +61,9 @@ The system executes 6 sequential processes to transform raw classroom imagery in
                                   ▼
 ┌───────────────────────────────────────────────────────────────────┐
 │ 4.0 Deep OCR Text Extraction                                      │
-│ • PyTorch CRAFT text detection + CRNN text recognition (EasyOCR)  │
+│ • RapidOCR DBNet + PP-OCRv4 recognition (ONNX Runtime) │
 │ • Bounding box generation with character confidence scores        │
-│ • Memory-gated inference (mag_ratio=1.0, torch.inference_mode())  │
+│ • One lazy CPU ONNX OCR engine; collect intermediates after OCR │
 │ • Immediate Python garbage collection (gc.collect())              │
 └─────────────────────────────────┬─────────────────────────────────┘
                                   │
@@ -146,15 +146,15 @@ To prevent Linux Out-Of-Memory (OOM) `SIGKILL` termination on Render's 512 MB fr
 1. **Lightweight ONNX Runtime Execution Provider**:
    - Replaced heavy TensorFlow runtime imports with `onnxruntime` CPU engine, freeing 336+ MB RSS.
 2. **Inference Concurrency Guard (`_inference_semaphore`)**:
-   - PyTorch CRAFT OCR is not thread-safe under concurrent Gunicorn threads. A strict `Semaphore(1)` ensures requests are serialized; concurrent spikes return clean HTTP 503 retry responses instead of crashing the process.
+   - A strict `Semaphore(1)` serializes CNN/OCR inference and avoids concurrent model copies; competing requests receive a retryable HTTP 503 response.
 3. **Pillow Header-Only Resolution Probe (8 MP Gate)**:
    - Evaluates JPEG/PNG dimensions from file headers (`Image.open().size`) before full OpenCV rasterization. Images exceeding 8 Megapixels are safely rejected with HTTP 400.
 4. **Zero-Copy NumPy Decoding**:
    - Uses `np.frombuffer(raw_bytes, np.uint8)` instead of `bytearray()`, eliminating memory buffer duplication.
 5. **Memory-Tuned Gunicorn WSGI Config**:
-   - Configured with `workers = 1`, `threads = 2`, `preload_app = True`, and `max_requests = 50` to recycle workers before fragmentation accumulates.
-6. **EasyOCR Memory Reduction**:
-   - Configured with `mag_ratio = 1.0` (saving ~173 MB vs. default 1.5) and wrapped in `torch.inference_mode()` with immediate `gc.collect()`.
+   - Configured with `workers = 1`, `threads = 2`, and `preload_app = True`. Gunicorn starts the single job thread in `post_fork`; request-count recycling is disabled so polling cannot recycle a worker during an active job.
+6. **RapidOCR ONNX Memory Use**:
+   - RapidOCR is initialized lazily as one per-process ONNX Runtime engine; the pipeline releases OCR intermediates and calls `gc.collect()` after extraction.
 
 ---
 
@@ -184,9 +184,18 @@ pip install -r requirements.txt
 ```
 
 ### 2. Run Local Flask Server
-```bash
-python app.py
+```powershell
+# Windows: run Flask with the project's installed dependencies
+.\venv\Scripts\python.exe -m flask --app app run --host 127.0.0.1 --port 5000
 ```
+
+```bash
+# Linux / macOS
+venv/bin/python -m flask --app app run --host 127.0.0.1 --port 5000
+```
+
+Use the same virtual environment where `requirements.txt` was installed. Running Flask with a different system Python can make upload succeed but fail at stage 2 when OpenCV is unavailable. The health response includes `preprocessing_configured` to help identify that setup issue.
+
 Open **http://127.0.0.1:5000/** in your browser.
 
 ### 3. CLI End-to-End Pipeline Execution
@@ -216,10 +225,22 @@ python test_phase1.py
 | `/api/health` | `GET` | None | Returns system health, CNN model readiness status, and timestamp |
 | `/api/upload` | `POST` | `multipart/form-data` (`image`) | Ingests classroom-board images with dimension and format validation |
 | `/api/files` | `GET` | None | Retrieves list of all uploaded images available for processing |
-| `/api/analyze/<filename>` | `GET` / `POST` | `<filename>` in URL | Executes full 6-stage AI pipeline on uploaded image |
+| `/api/analyze/jobs` | `POST` | JSON: `{"filename":"<saved_name>"}` | Queues the six-stage pipeline and returns HTTP 202 with a job ID |
+| `/api/analyze/jobs/<job_id>` | `GET` | Job ID in URL | Returns queued/running progress, the completed pipeline result, or a safe failure message |
+| `/api/analyze/<filename>` | `GET` / `POST` | `<filename>` in URL | Backward-compatible synchronous six-stage analysis endpoint |
 | `/api/export-notes/<filename>` | `GET` | `?format=md` or `?format=txt` | Generates and downloads structured academic study notes |
 | `/uploads/<filename>` | `GET` | `<filename>` in URL | Serves the original raw uploaded image |
 | `/pipeline_output/<filename>`| `GET` | `<filename>` in URL | Serves the OpenCV preprocessed and enhanced board image |
+
+The browser uses the asynchronous job endpoints so long OCR runs do not hold a single proxied request open. Jobs run through one in-process worker and share the inference semaphore with the legacy synchronous endpoint. Under Gunicorn, the worker thread starts in the child process through `post_fork`; app preloading remains enabled and Gunicorn is configured for one worker so job creation and polling use the same manager. Job metadata and results are held in memory; the SQLite database is used for accounts, and no persistent job datastore is configured. A Render restart, deploy, or abrupt process exit can interrupt active jobs and clears their status/results. Because uploads and job state are process-local, this setup requires a single Render instance; multiple replicas need shared storage and queue state. The status endpoint returns HTTP 404 for unknown, expired, or lost job IDs. Upload cleanup protects queued and running job images.
+
+Refreshing or closing the browser clears the page's active polling state because the job ID is not persisted in the browser. A queued or running job can continue on the server while that process remains alive; retrying the same image asks the in-memory manager to reconnect to its active job. A completed result is not restored into the page after refresh, and a Render restart can make the job ID unavailable.
+
+### Vercel preview configuration
+
+`vercel.mjs` keeps browser requests on relative `/api/...` URLs and rewrites them to Render. Production uses `https://classroom-backend-cp6o.onrender.com`. For Vercel Preview and Development deployments, define `CLASSMIND_PREVIEW_BACKEND_URL` in the Vercel project environment settings and point it at a separate preview Render service, for example `https://classroom-preview.onrender.com`. Use a plain HTTPS service origin without credentials, a path, query string, or fragment. The preview origin must be on `onrender.com` and must differ from production; missing or invalid configuration stops the preview build.
+
+Install dependencies with `python -m pip install -r requirements.txt`. Run the job tests with `python -m unittest test_analysis_jobs -v` and the existing configuration checks with `python scripts/test_config.py`. Run the real local async upload-to-result check with `python scripts/test_async_api.py`. Measure standalone pipeline RSS with `python scripts/measure_pipeline_rss.py samples/sample_board.jpg`; the script writes its processed preview to a unique temporary directory. To test the UI, start Flask with `python -m flask --app app run --host 127.0.0.1 --port 5000`, upload an image, and confirm the browser sends `POST /api/analyze/jobs` followed by short `GET /api/analyze/jobs/<job_id>` polls.
 
 ---
 
