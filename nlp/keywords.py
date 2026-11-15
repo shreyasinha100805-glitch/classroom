@@ -15,7 +15,7 @@ def clean_text(text):
 
     # Remove unusual symbols
     text = re.sub(
-        r"[^a-zA-Z0-9\s.,:;()\-+/]",
+        r"[^a-zA-Z0-9_\s.,:;()<>!=+*/%&|^\-→↔]",
         " ",
         text
     )

@@ -1235,6 +1235,20 @@ function initAnalysisDrawer() {
                 data = null;
             }
             if (!res.ok) {
+                const isAsyncJobCreate = url === '/api/analyze/jobs' &&
+                    String(options && options.method || 'GET').toUpperCase() === 'POST';
+                const isLegacyJobsFilenameError = res.status === 404 && isAsyncJobCreate &&
+                    /image file\s+['\"]jobs['\"]\s+not found/i.test(
+                        data && data.error ? data.error : body
+                    );
+                if (isLegacyJobsFilenameError) {
+                    const compatibilityError = new Error(
+                        'The connected backend does not support asynchronous analysis yet. Please update the backend deployment.'
+                    );
+                    compatibilityError.status = 404;
+                    compatibilityError.asyncUnsupported = true;
+                    throw compatibilityError;
+                }
                 const err = new Error((data && data.error)
                     ? data.error
                     : `The analysis service returned HTTP ${res.status}${contentType.includes('json') ? '.' : ' from an upstream service.'} Please retry shortly.`);
@@ -1398,7 +1412,12 @@ function initAnalysisDrawer() {
                 }
             } catch (err) {
                 if (runId !== activeAnalysisRun) return;
-                renderDrawerError(err.message || 'Failed to connect to the analysis service.', savedName, originalName);
+                renderDrawerError(
+                    err.message || 'Failed to connect to the analysis service.',
+                    savedName,
+                    originalName,
+                    Boolean(err.asyncUnsupported)
+                );
             } finally {
                 if (runId === activeAnalysisRun) {
                     setRunButtonBusy(activeAnalysisButton, false);
@@ -1475,6 +1494,8 @@ function initAnalysisDrawer() {
     function renderDrawerResults(data, originalName) {
         const classification = data.classification || { class: 'Unknown', confidence: 0 };
         const text = data.extracted_text || '';
+        const ocrWarning = data.ocr_warning || null;
+        const ocrQuality = data.ocr_quality || {};
         const keywords = data.keywords || [];
         const topics = data.topics || [];
         const notes = data.structured_notes || {
@@ -1512,31 +1533,32 @@ function initAnalysisDrawer() {
                         <p>The CNN identifies the type of image/content: <strong>${escapeHtml((classification.class || '').toUpperCase())}</strong> (${classification.confidence}%)</p>
                     </div>
                 </div>
-                <div class="step-node completed">
-                    <div class="step-circle">✓</div>
+                <div class="step-node ${ocrWarning ? 'warning' : 'completed'}">
+                    <div class="step-circle">${ocrWarning ? '!' : '✓'}</div>
                     <div class="step-content">
                         <h4>4.0 OCR Text Extraction</h4>
-                        <p>OCR reads and extracts text from the classroom image. (${(data.ocr_items || []).length} text regions detected)</p>
+                        <p>${escapeHtml(ocrWarning || `RapidOCR checked the original image and ${ocrQuality.variant === 'hsv_chalk' ? 'a chalk-color enhancement' : 'kept the original color input'}. ${(data.ocr_items || []).length} raw regions retained.`)}</p>
                     </div>
                 </div>
-                <div class="step-node completed">
-                    <div class="step-circle">✓</div>
+                <div class="step-node ${ocrWarning ? 'warning' : 'completed'}">
+                    <div class="step-circle">${ocrWarning ? '!' : '✓'}</div>
                     <div class="step-content">
                         <h4>5.0 NLP Analysis</h4>
-                        <p>The extracted text is analyzed to identify important keywords (${keywords.length}) and topics (${topics.length}).</p>
+                        <p>${escapeHtml(ocrWarning ? 'Skipped because the OCR transcript could not be verified.' : `The extracted text is analyzed to identify important keywords (${keywords.length}) and topics (${topics.length}).`)}</p>
                     </div>
                 </div>
-                <div class="step-node completed">
-                    <div class="step-circle">✓</div>
+                <div class="step-node ${ocrWarning ? 'warning' : 'completed'}">
+                    <div class="step-circle">${ocrWarning ? '!' : '✓'}</div>
                     <div class="step-content">
                         <h4>6.0 Structured Notes Generation</h4>
-                        <p>The system combines the extracted information and generates organized notes for the user.</p>
+                        <p>${escapeHtml(ocrWarning ? 'Notes were withheld because the recognized text is unreliable.' : 'The system combines verified extracted information and generates organized notes for the user.')}</p>
                     </div>
                 </div>
             </div>
 
             <!-- Stage 6.0 Structured Notes Generation Display Block -->
             <div class="structured-notes-card">
+                ${ocrWarning ? `<div class="ocr-warning-callout" role="alert"><strong>Clearer capture needed</strong><span>${escapeHtml(ocrWarning)}</span></div>` : ''}
                 <div class="note-header-strip">
                     <div>
                         <div class="step-tag-pill" style="margin-bottom: 6px; display: inline-block;">STAGE 6.0 GENERATED NOTES</div>
@@ -1658,11 +1680,11 @@ function initAnalysisDrawer() {
                 <div class="result-block-header">
                     <div>
                         <span class="step-tag-pill" style="font-size: 0.65rem; margin-right: 6px;">4.0</span>
-                        <span class="result-block-title">Deep Sequence OCR Extraction</span>
+                        <span class="result-block-title">Raw OCR Text Recognition</span>
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <span class="badge-format" style="background: rgba(139, 92, 246, 0.15); border: 1px solid rgba(139, 92, 246, 0.35); color: #c4b5fd;">
-                            CRAFT + BiLSTM CTC
+                            RapidOCR - ONNX Runtime - CPU
                         </span>
                         <button class="btn-copy-name" id="btn-copy-ocr" title="Copy Text" style="color: var(--primary-cyan); font-size: 0.8rem; display: flex; align-items: center; gap: 4px;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1822,7 +1844,7 @@ function initAnalysisDrawer() {
         }
     }
 
-    function renderDrawerError(errMsg, savedName, originalName) {
+    function renderDrawerError(errMsg, savedName, originalName, asyncUnsupported = false) {
         drawerContent.innerHTML = `
             <div style="text-align: center; padding: 40px 15px;">
                 <div style="display: flex; justify-content: center; margin-bottom: 14px;">
@@ -1839,9 +1861,11 @@ function initAnalysisDrawer() {
                     ${escapeHtml(errMsg)}
                 </p>
                 <div style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: var(--radius-sm); padding: 12px; font-size: 0.8rem; color: #fecdd3; font-family: var(--font-mono); margin-bottom: 18px;">
-                    The service returned an error. Retry the analysis; if it continues, share the status message with the project maintainer.
+                    ${asyncUnsupported
+                        ? 'Update the backend deployment before trying this analysis again.'
+                        : 'The service returned an error. Retry the analysis; if it continues, share the status message with the project maintainer.'}
                 </div>
-                ${savedName ? `
+                ${savedName && !asyncUnsupported ? `
                 <div>
                     <button type="button" class="btn-neural-submit" id="btn-retry-analysis" style="font-size: 0.82rem; padding: 8px 18px; width: auto; display: inline-flex; margin: 0 auto;">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

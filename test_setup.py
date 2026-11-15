@@ -1,22 +1,25 @@
-import cv2
-import tensorflow as tf
-import easyocr
-import sklearn
-import spacy
-import flask
+"""Check the production CPU/ONNX stack without pulling in legacy DL packages."""
+
 import importlib.metadata
+import unittest
 
-print("=" * 50)
-print("AI CLASSROOM BOARD EXTRACTOR")
-print("=" * 50)
 
-print("OpenCV      :", cv2.__version__)
-print("TensorFlow  :", tf.__version__)
-print("EasyOCR     : OK")
-print("Scikit-Learn:", sklearn.__version__)
-print("spaCy       :", spacy.__version__)
-print("Flask       :", importlib.metadata.version("flask"))
+class ProductionSetupTests(unittest.TestCase):
+    def test_cpu_onnx_ocr_dependencies_are_available(self):
+        packages = (
+            "Flask",
+            "numpy",
+            "onnxruntime",
+            "opencv-python",
+            "Pillow",
+            "rapidocr-onnxruntime",
+        )
+        versions = {name: importlib.metadata.version(name) for name in packages}
+        self.assertTrue(all(versions.values()))
+        import onnxruntime
+        self.assertIn("CPUExecutionProvider", onnxruntime.get_available_providers())
+        print("Production CPU/ONNX dependencies:", versions)
 
-print("=" * 50)
-print("ALL LIBRARIES ARE WORKING!")
-print("=" * 50)
+
+if __name__ == "__main__":
+    unittest.main()

@@ -239,6 +239,12 @@ class AnalysisJobRouteTests(unittest.TestCase):
             )
             self.assertIn("Origin", response.headers["Vary"])
             self.assertEqual(response.get_json()["status"], "queued")
+            self.assertTrue(response.get_json()["success"])
+            self.assertIsNone(response.get_json()["current_stage"])
+            self.assertEqual(
+                response.get_json()["progress"],
+                {"completed_stages": 0, "total_stages": 6},
+            )
             job_id = response.get_json()["job_id"]
             self.assertTrue(started.wait(2))
 
@@ -283,6 +289,29 @@ class AnalysisJobRouteTests(unittest.TestCase):
         self.assertNotIn("origin", allowed_headers)
         self.assertIn("Origin", response.headers["Vary"])
 
+    def test_cors_allows_configured_preview_origin_for_post_and_polling(self):
+        preview_origin = "https://classroom-gdd95ascw-shreyasinha100805-glitchs-projects.vercel.app"
+        preview_backend = "https://classroom-backend-preview.onrender.com"
+        with patch.object(
+            self.flask_app_module,
+            "TRUSTED_ORIGINS",
+            [preview_origin, preview_backend],
+        ):
+            create = self.client.post(
+                "/api/analyze/jobs",
+                json={},
+                headers={"Origin": preview_origin},
+            )
+            poll = self.client.get(
+                "/api/analyze/jobs/unknown-job",
+                headers={"Origin": preview_origin},
+            )
+
+        self.assertEqual(create.status_code, 400)
+        self.assertEqual(poll.status_code, 404)
+        self.assertEqual(create.headers["Access-Control-Allow-Origin"], preview_origin)
+        self.assertEqual(poll.headers["Access-Control-Allow-Origin"], preview_origin)
+
     def test_cors_headers_are_attached_to_api_error_responses(self):
         origin = "https://classroom-tan-iota.vercel.app"
         headers = {"Origin": origin}
@@ -290,6 +319,7 @@ class AnalysisJobRouteTests(unittest.TestCase):
             responses = [
                 self.client.post("/api/analyze/jobs", json={}, headers=headers),
                 self.client.get("/api/analyze/jobs/unknown-job", headers=headers),
+                self.client.get("/api/analyze/jobs", headers=headers),
                 self.client.post(
                     "/api/auth/login",
                     json={"login_identifier": "unknown-user", "password": "invalid"},
@@ -313,7 +343,7 @@ class AnalysisJobRouteTests(unittest.TestCase):
             ):
                 responses.append(self.client.post("/api/analyze/board.jpg", headers=headers))
 
-        self.assertEqual([response.status_code for response in responses], [400, 404, 401, 503, 500])
+        self.assertEqual([response.status_code for response in responses], [400, 404, 405, 401, 503, 500])
         for response in responses:
             self.assertEqual(response.headers["Access-Control-Allow-Origin"], origin)
             self.assertEqual(response.headers["Access-Control-Allow-Credentials"], "true")
@@ -382,6 +412,14 @@ class AnalysisJobRouteTests(unittest.TestCase):
             404,
         )
 
+    def test_get_jobs_is_reserved_and_never_treated_as_a_filename(self):
+        response = self.client.get("/api/analyze/jobs")
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.get_json()["error_code"], "async_method_required")
+        self.assertEqual(response.headers["Allow"], "POST, OPTIONS")
+        self.assertIn("Use POST /api/analyze/jobs", response.get_json()["error"])
+        self.assertNotIn("Image file 'jobs'", response.get_data(as_text=True))
+
     def test_failed_status_endpoint_returns_safe_error(self):
         def processor(_filename, _report_stage):
             raise AnalysisJobError("Text extraction is temporarily unavailable.") from RuntimeError("secret detail")
@@ -406,6 +444,18 @@ class AnalysisJobRouteTests(unittest.TestCase):
         }
         with patch.object(self.flask_app_module, "run_pipeline_data", return_value=result):
             response = self.client.get("/api/analyze/board.jpg")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), result)
+
+    def test_legacy_synchronous_post_remains_available(self):
+        result = {
+            "success": True,
+            "stages": [{"step": "1.0", "status": "completed"}],
+            "structured_notes": {"title": "Legacy POST notes"},
+        }
+        with patch.object(self.flask_app_module, "run_pipeline_data", return_value=result):
+            response = self.client.post("/api/analyze/board.jpg")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), result)
@@ -517,13 +567,15 @@ class RapidOCRExtractorTests(unittest.TestCase):
             def __call__(self, _image_path):
                 return rapid_result, self.elapsed
 
-        with tempfile.NamedTemporaryFile(suffix=".jpg") as image_file:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "input.jpg"
+            Image.new("RGB", (20, 20), "white").save(image_path)
             for elapsed in (
                 [0.1, None, "invalid", float("nan"), float("inf"), 0.2],
                 (0.1, 0.2, None),
             ):
                 with patch.object(extractor, "get_reader", return_value=FakeEngine(elapsed)):
-                    result = extractor.extract_text(image_file.name)
+                    result = extractor.extract_text(str(image_path))
                 self.assertEqual(len(result), 1)
                 self.assertEqual(result[0]["text"], "board text")
                 self.assertEqual(result[0]["confidence"], 0.95)
@@ -586,9 +638,11 @@ class CNNInferenceTests(unittest.TestCase):
             def __call__(self, _image_path):
                 return None, None
 
-        with tempfile.NamedTemporaryFile(suffix=".jpg") as image_file:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "input.jpg"
+            Image.new("RGB", (20, 20), "white").save(image_path)
             with patch.object(extractor, "get_reader", return_value=EmptyEngine()):
-                self.assertEqual(extractor.extract_text(image_file.name), [])
+                self.assertEqual(extractor.extract_text(str(image_path)), [])
 
 
 class PipelineProgressTests(unittest.TestCase):
@@ -613,7 +667,11 @@ class PipelineProgressTests(unittest.TestCase):
             }
             ocr_module = types.ModuleType("ocr.extractor")
             ocr_module.OCREngineUnavailable = type("OCREngineUnavailable", (RuntimeError,), {})
-            ocr_module.extract_text = lambda _path: [{"text": "biology", "confidence": 0.99}]
+            ocr_module.extract_text = lambda _path: [
+                {"text": "Database table", "confidence": 0.99},
+                {"text": "Primary key", "confidence": 0.98},
+                {"text": "Student ID = 12", "confidence": 0.97},
+            ]
             keywords_module = types.ModuleType("nlp.keywords")
             keywords_module.extract_keywords = lambda _text, max_keywords=10: ["biology"]
             topics_module = types.ModuleType("nlp.topics")
@@ -687,7 +745,8 @@ class PipelineProgressTests(unittest.TestCase):
         self.assertEqual(result["keywords"], [])
         self.assertEqual(result["topics"], [])
         self.assertEqual(result["structured_notes"]["key_points"], [])
-        self.assertIn("No text detected on the board.", result["structured_notes"]["markdown"])
+        self.assertIn("No study notes were generated from uncertain text.", result["structured_notes"]["markdown"])
+        self.assertEqual(result["stages"][3]["status"], "warning")
 
     def test_frontend_copies_use_async_jobs_and_are_identical(self):
         root = Path(__file__).parent
@@ -695,7 +754,11 @@ class PipelineProgressTests(unittest.TestCase):
         published = (root / "public" / "js" / "script.js").read_text(encoding="utf-8")
         self.assertEqual(source, published)
         self.assertIn("/api/analyze/jobs", source)
+        self.assertIn("method: 'POST'", source)
+        self.assertNotIn("JSON.stringify({ filename: 'jobs' })", source)
         self.assertIn("/api/analyze/jobs/${encodeURIComponent(jobId)}", source)
+        self.assertIn("The connected backend does not support asynchronous analysis yet.", source)
+        self.assertIn("asyncUnsupported", source)
         self.assertIn("setTimeout(resolve, 2500)", source)
         self.assertIn("Retry Pipeline Analysis", source)
         self.assertIn("runAnalysis(savedName, originalName || savedName)", source)
@@ -757,9 +820,9 @@ class InferenceSemaphoreTests(unittest.TestCase):
         constructor_lock = threading.Lock()
 
         class FakeRapidOCR:
-            def __init__(self):
+            def __init__(self, **kwargs):
                 with constructor_lock:
-                    constructor_calls.append(self)
+                    constructor_calls.append((self, kwargs))
                 time.sleep(0.03)
 
         fake_module = types.ModuleType("rapidocr_onnxruntime")
@@ -775,7 +838,9 @@ class InferenceSemaphoreTests(unittest.TestCase):
                 thread.join(2)
             self.assertTrue(all(not thread.is_alive() for thread in threads))
             self.assertEqual(len(constructor_calls), 1)
-            self.assertTrue(all(engine is constructor_calls[0] for engine in results))
+            engine, constructor_kwargs = constructor_calls[0]
+            self.assertEqual(constructor_kwargs, {"intra_op_num_threads": 1, "inter_op_num_threads": 1})
+            self.assertTrue(all(result is engine for result in results))
         finally:
             extractor._ocr_engine = previous_engine
             if previous_module is None:

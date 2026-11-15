@@ -756,8 +756,19 @@ def pipeline_output_file(filename):
 # API: COMPLETE 6-STAGE AI PIPELINE
 # ==============================================================================
 
-@app.route("/api/analyze/jobs", methods=["POST"])
+@app.route("/api/analyze/jobs", methods=["GET", "POST"])
 def create_analysis_job():
+    # Reserve the static endpoint for both methods so GET /jobs never falls
+    # through to the legacy /api/analyze/<filename> handler as filename=jobs.
+    if request.method == "GET":
+        response = jsonify({
+            "success": False,
+            "error_code": "async_method_required",
+            "error": "Use POST /api/analyze/jobs to create an analysis job.",
+        })
+        response.headers["Allow"] = "POST, OPTIONS"
+        return response, 405
+
     payload = request.get_json(silent=True)
     filename = payload.get("filename") if isinstance(payload, dict) else None
     if not isinstance(filename, str) or not filename.strip():
@@ -798,8 +809,14 @@ def create_analysis_job():
         }), 503
 
     response = {
+        "success": True,
         "job_id": job["job_id"],
         "status": job["status"],
+        "current_stage": job.get("current_stage"),
+        "progress": {
+            "completed_stages": 0 if job["status"] == "queued" else None,
+            "total_stages": 6,
+        },
         "message": (
             "Analysis is already queued or running"
             if duplicate

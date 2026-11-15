@@ -76,6 +76,12 @@ def main():
                 "keyword_count": len(result.get("keywords", [])),
                 "topic_count": len(result.get("topics", [])),
                 "notes_title": result.get("structured_notes", {}).get("title"),
+                "ocr_variant": result.get("ocr_quality", {}).get("variant"),
+                "ocr_latency_seconds": result.get("ocr_quality", {}).get("latency_seconds"),
+                "ocr_mean_confidence": result.get("ocr_quality", {}).get("average_confidence"),
+                "ocr_valid_regions": result.get("ocr_quality", {}).get("valid_region_count"),
+                "ocr_supported_terms": result.get("ocr_quality", {}).get("meaningful_terms"),
+                "ocr_warning": result.get("ocr_warning"),
             })
             if error:
                 errors.append(error)

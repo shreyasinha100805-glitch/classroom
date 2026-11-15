@@ -109,7 +109,19 @@ check("RapidOCR list/tuple elapsed times are normalized before logging",
       "def _elapsed_seconds(elapse)" in ocr_src and
       "math.isfinite(value)" in ocr_src and
       "value >= 0" in ocr_src and
-      "elapsed_seconds = _elapsed_seconds(elapse)" in ocr_src)
+      "_elapsed_seconds(elapse)" in ocr_src)
+check("OCR preprocessing exposes the requested bounded comparison variants",
+      all(name in pre_src for name in [
+          "original_rgb", "grayscale", "clahe", "adaptive_threshold",
+          "otsu_threshold", "lab_clahe", "hsv_chalk", "perspective_corrected",
+      ]))
+check("Production OCR starts from the source upload and caps retries at one",
+      "ocr_results = extract_text(image_path)" in pipe_src and
+      "make_ocr_variant(source_image, \"hsv_chalk\")" in pipe_src)
+check("NLP uses supported OCR evidence and warns instead of summarizing unreliable text",
+      "assess_ocr_quality(ocr_clean)" in pipe_src and
+      "low_confidence_notes(ocr_quality[\"warning\"])" in pipe_src and
+      '"ocr_warning": ocr_quality["warning"]' in pipe_src)
 check("del intermediate arrays in preprocessing (gray, denoised, enhanced, blurred)",
       pre_src.count("del ") >= 4,
       f"only {pre_src.count('del ')} del statements")
@@ -335,8 +347,8 @@ runtime_tests = [
     "/api/analyze/<filename> returns HTTP 200 (not 500) on first request",
     "/api/analyze/<filename> returns HTTP 200 on second consecutive request (warm worker)",
     "CNN stage completes: stages[2].status == 'completed' in JSON response",
-    "OCR stage completes: stages[3].status == 'completed' and ocr_items non-empty",
-    "Full 6-stage pipeline: all stages[*].status == 'completed'",
+    "OCR stage returns validated raw regions and a warning when quality checks fail",
+    "Full six-stage pipeline completes; OCR/NLP/notes may be warning stages when evidence is weak",
     "Render logs show RSS before/after values (via psutil) below 512 MB",
     "Oversized image (>8 MP) returns HTTP 400 with pixel-count error message",
     "Concurrent requests: second /api/analyze returns 503 while first is running",

@@ -2,6 +2,8 @@
 # CLASSROOM BOARD TOPIC DETECTION
 # ==========================================
 
+import re
+
 TOPIC_CATEGORIES = {
 
     "Artificial Intelligence": [
@@ -120,7 +122,18 @@ TOPIC_CATEGORIES = {
         "postgresql",
         "mysql",
         "record",
-        "records"
+        "records",
+        "schema",
+        "relational",
+        "attribute",
+        "attributes",
+        "primary",
+        "foreign",
+        "key",
+        "constraint",
+        "null",
+        "normalization",
+        "varchar"
     ]
 }
 
@@ -147,7 +160,7 @@ def detect_topics(text):
 
         for keyword in keywords:
 
-            if keyword in text_lower:
+            if re.search(r"\b" + re.escape(keyword) + r"\b", text_lower):
 
                 matches.append(
                     keyword
