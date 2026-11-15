@@ -367,7 +367,7 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
             "title": "CNN Classification",
             "description": "The CNN identifies the type of image/content such as board, text or background.",
             "status": "warning",
-            "details": f"CNN classification skipped/fallback: {str(exc)}"
+            "details": "CNN classification is unavailable; the remaining stages continued."
         })
     _log_memory("after-cnn")
 
@@ -453,7 +453,7 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
             "title": "NLP Analysis",
             "description": "The extracted text is analyzed to identify important keywords and topics.",
             "status": "warning",
-            "details": f"NLP analysis fallback: {str(exc)}"
+            "details": "Text analysis is unavailable; no keywords or topics were added."
         })
     _log_memory("after-nlp")
 
@@ -495,7 +495,7 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
             "title": "Structured Notes Generation",
             "description": "The system combines the extracted information and generates organized notes for the user.",
             "status": "warning",
-            "details": f"Structured notes generated with fallback: {str(exc)}"
+            "details": "Fallback notes were generated because structured note formatting failed."
         })
     _log_memory("after-notes")
 

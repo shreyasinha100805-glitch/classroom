@@ -1144,6 +1144,7 @@ function initAnalysisDrawer() {
     const drawerContent = document.getElementById('drawer-content');
     let activeAnalysisRun = 0;
     let activeAnalysisController = null;
+    let activeAnalysisButton = null;
     const analysisStages = [
         'Image Upload & Validation',
         'Image Preprocessing',
@@ -1153,22 +1154,70 @@ function initAnalysisDrawer() {
         'Structured Notes Generation'
     ];
 
+    function activeJobStorageKey(savedName) {
+        return `classmind_active_analysis:${encodeURIComponent(savedName)}`;
+    }
+
+    function readActiveJobId(savedName) {
+        try {
+            const jobId = sessionStorage.getItem(activeJobStorageKey(savedName));
+            return jobId && jobId.length <= 128 ? jobId : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function storeActiveJobId(savedName, jobId) {
+        try {
+            sessionStorage.setItem(activeJobStorageKey(savedName), jobId);
+        } catch (_) {
+            // Keep analysis usable when storage is disabled or unavailable.
+        }
+    }
+
+    function clearActiveJobId(savedName, jobId) {
+        try {
+            const key = activeJobStorageKey(savedName);
+            if (sessionStorage.getItem(key) === jobId) sessionStorage.removeItem(key);
+        } catch (_) {
+            // Storage is only a recovery hint; server job state remains authoritative.
+        }
+    }
+
     if (!drawer) return;
 
-    if (closeBtn) {
+    if (closeBtn && closeBtn.dataset.analysisCloseBound !== 'true') {
+        closeBtn.dataset.analysisCloseBound = 'true';
         closeBtn.addEventListener('click', () => {
             drawer.classList.remove('open');
         });
     }
 
     document.querySelectorAll('.btn-run-pipeline').forEach((btn) => {
+        if (btn.dataset.analysisRunBound === 'true') return;
+        btn.dataset.analysisRunBound = 'true';
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             const savedName = btn.getAttribute('data-saved-name');
             const originalName = btn.getAttribute('data-orig-name') || savedName;
-            runAnalysis(savedName, originalName);
+            runAnalysis(savedName, originalName, btn);
         });
     });
+
+    const recoveryButton = Array.from(document.querySelectorAll('.btn-run-pipeline')).find((btn) => {
+        const savedName = btn.getAttribute('data-saved-name');
+        return savedName && readActiveJobId(savedName);
+    });
+    if (recoveryButton) {
+        const savedName = recoveryButton.getAttribute('data-saved-name');
+        const originalName = recoveryButton.getAttribute('data-orig-name') || savedName;
+        const jobId = readActiveJobId(savedName);
+        const recoveryKey = `${savedName}:${jobId}`;
+        if (drawer.dataset.recoveredAnalysis !== recoveryKey) {
+            drawer.dataset.recoveredAnalysis = recoveryKey;
+            runAnalysis(savedName, originalName, recoveryButton);
+        }
+    }
 
     async function requestAnalysisJson(url, options, timeoutMs) {
         const controller = new AbortController();
@@ -1237,32 +1286,56 @@ function initAnalysisDrawer() {
         });
     }
 
-    function runAnalysis(savedName, originalName) {
+    function findRunButton(savedName) {
+        return Array.from(document.querySelectorAll('.btn-run-pipeline')).find(
+            (btn) => btn.getAttribute('data-saved-name') === savedName
+        ) || null;
+    }
+
+    function setRunButtonBusy(button, isBusy) {
+        if (!button) return;
+        button.disabled = isBusy;
+        button.setAttribute('aria-busy', String(isBusy));
+    }
+
+    function runAnalysis(savedName, originalName, triggerButton = null) {
         if (activeAnalysisController) activeAnalysisController.abort();
         const runId = ++activeAnalysisRun;
+        setRunButtonBusy(activeAnalysisButton, false);
+        activeAnalysisButton = triggerButton || findRunButton(savedName);
+        setRunButtonBusy(activeAnalysisButton, true);
         drawer.classList.add('open');
         showDrawerLoading(originalName);
-        updateDrawerProgress('queued');
+        const savedJobId = readActiveJobId(savedName);
+        updateDrawerProgress(savedJobId ? 'reconnecting' : 'queued');
 
         (async () => {
             try {
-                const accepted = await requestAnalysisJson('/api/analyze/jobs', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                    body: JSON.stringify({ filename: savedName })
-                }, 110000);
-                if (runId !== activeAnalysisRun) return;
-                if (!accepted || !accepted.job_id) {
-                    throw new Error('The analysis service did not return a job ID. Please retry.');
+                let jobId = savedJobId;
+                let initialStatus = savedJobId ? null : 'queued';
+                if (!jobId) {
+                    const accepted = await requestAnalysisJson('/api/analyze/jobs', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ filename: savedName })
+                    }, 110000);
+                    if (runId !== activeAnalysisRun) return;
+                    if (!accepted || !accepted.job_id) {
+                        throw new Error('The analysis service did not return a job ID. Please retry.');
+                    }
+
+                    jobId = accepted.job_id;
+                    initialStatus = accepted.status || 'queued';
+                    storeActiveJobId(savedName, jobId);
                 }
 
-                const jobId = accepted.job_id;
                 const deadline = Date.now() + 15 * 60 * 1000;
                 let consecutivePollErrors = 0;
 
                 while (Date.now() < deadline && runId === activeAnalysisRun) {
-                    if (accepted.status === 'queued' || accepted.status === 'running') {
-                        updateDrawerProgress(accepted.status, accepted.current_stage);
+                    if (initialStatus) {
+                        updateDrawerProgress(initialStatus);
+                        initialStatus = null;
                     }
                     await new Promise(resolve => setTimeout(resolve, 2500));
                     if (runId !== activeAnalysisRun) return;
@@ -1278,6 +1351,7 @@ function initAnalysisDrawer() {
                     } catch (err) {
                         if (runId !== activeAnalysisRun) return;
                         if (err.status === 404) {
+                            clearActiveJobId(savedName, jobId);
                             throw new Error('This analysis job is no longer available. It may have been interrupted by a server restart. Retry to reconnect or start it again.');
                         }
                         if (err.retryable || err.status >= 500) {
@@ -1299,14 +1373,17 @@ function initAnalysisDrawer() {
                     }
                     if (job.status === 'completed') {
                         if (!job.result) throw new Error('The completed job did not include analysis results.');
+                        clearActiveJobId(savedName, jobId);
                         renderDrawerResults(job.result, originalName);
                         showToast('AI pipeline analysis completed!', 'success');
                         return;
                     }
                     if (job.status === 'failed') {
+                        clearActiveJobId(savedName, jobId);
                         throw new Error(job.error || 'The image could not be processed. Please retry.');
                     }
                     if (job.status === 'not_found') {
+                        clearActiveJobId(savedName, jobId);
                         throw new Error(job.error || 'This analysis job is no longer available. Retry the analysis.');
                     }
                     throw new Error('The analysis service returned an unknown job status. Please retry.');
@@ -1322,6 +1399,11 @@ function initAnalysisDrawer() {
             } catch (err) {
                 if (runId !== activeAnalysisRun) return;
                 renderDrawerError(err.message || 'Failed to connect to the analysis service.', savedName, originalName);
+            } finally {
+                if (runId === activeAnalysisRun) {
+                    setRunButtonBusy(activeAnalysisButton, false);
+                    activeAnalysisButton = null;
+                }
             }
         })();
     }

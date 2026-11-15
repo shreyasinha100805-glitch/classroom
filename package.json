@@ -5,7 +5,7 @@
   "description": "AI Classroom Board Content Extractor - Neural Vision & Note Generator Frontend",
   "scripts": {
     "build": "node build.js",
-    "test": "node -e \"const fs=require('fs'); ['public/index.html','public/result.html','public/login.html','public/signup.html'].forEach(f=>{if(!fs.existsSync(f)) throw new Error('Missing '+f);}); console.log('All frontend static assets verified successfully.');\"",
+    "test": "node scripts/test_frontend.js",
     "start": "serve -s public"
   }
 }

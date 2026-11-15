@@ -23,6 +23,7 @@ function getBackendOrigin() {
     backendUrl.protocol !== 'https:' ||
     backendUrl.username ||
     backendUrl.password ||
+    backendUrl.port ||
     backendUrl.pathname !== '/' ||
     backendUrl.search ||
     backendUrl.hash ||
@@ -49,19 +50,6 @@ export const config = {
   outputDirectory: 'public',
   cleanUrls: true,
   trailingSlash: false,
-  headers: [
-    {
-      source: '/(.*)',
-      headers: [
-        { key: 'Access-Control-Allow-Origin', value: '*' },
-        { key: 'Access-Control-Allow-Methods', value: 'GET,POST,OPTIONS,HEAD' },
-        {
-          key: 'Access-Control-Allow-Headers',
-          value: 'Content-Type, Authorization, X-Requested-With, Accept',
-        },
-      ],
-    },
-  ],
   rewrites: [
     { source: '/api/(.*)', destination: `${backend}/api/$1` },
     { source: '/upload', destination: `${backend}/upload` },

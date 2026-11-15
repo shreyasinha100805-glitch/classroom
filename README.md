@@ -1,7 +1,7 @@
 # AI-Based Classroom Board Content Extractor (ClassMind AI)
 ### Subject: Neural Network & Deep Learning (PCCCS582)
 
-[![Branch](https://img.shields.io/badge/branch-fix%2Frender--memory--pipeline-blue.svg)](https://github.com/shreyasinha100805-glitch/classroom/tree/fix/render-memory-pipeline)
+[![Branch](https://img.shields.io/badge/branch-main-blue.svg)](https://github.com/shreyasinha100805-glitch/classroom/tree/main)
 [![Python](https://img.shields.io/badge/Python-3.11-brightgreen.svg)](https://www.python.org/)
 [![Model](https://img.shields.io/badge/Inference-ONNX%20Runtime%201.17+-orange.svg)](https://onnxruntime.ai/)
 [![Frontend](https://img.shields.io/badge/Frontend-Vercel%20Live-black.svg)](https://classroom-tan-iota.vercel.app/)
@@ -16,9 +16,7 @@ An end-to-end intelligent multimodal deep learning system engineered to capture 
 | Component | Platform | Live URL | Status |
 |---|---|---|---|
 | **Production Frontend** | Vercel CDN | [https://classroom-tan-iota.vercel.app/](https://classroom-tan-iota.vercel.app/) | **Active / Production** |
-| **Alternative Frontend** | Vercel CDN | [https://classroom-theta-silk.vercel.app/](https://classroom-theta-silk.vercel.app/) | **Active / Mirror** |
 | **AI Inference Backend** | Render Container | [https://classroom-backend-cp6o.onrender.com/](https://classroom-backend-cp6o.onrender.com/) | **Active / Production** |
-| *Legacy Preview Alias* | Vercel | `classroom-swart-one.vercel.app` | *Deprecated / 404 (Use active link above)* |
 
 > [!NOTE]
 > All frontend routes transparently proxy `/api/*` and image requests to the dedicated Render backend service, avoiding cross-origin issues and browser security blocks.
@@ -55,7 +53,7 @@ The system executes 6 sequential processes to transform raw classroom imagery in
 │ • Rescaling(1/255) → 3× [Conv2D + ReLU + MaxPool2D] blocks        │
 │ • Dense(128, ReLU) + Dropout(0.5) → Dense(3, Softmax)             │
 │ • Identifies image content type: [background, board, text]        │
-│ • Ultra-low memory ONNX Runtime engine (71 MB RSS, 8.5ms latency) │
+│ • CPU ONNX Runtime inference; production path does not import Keras │
 └─────────────────────────────────┬─────────────────────────────────┘
                                   │
                                   ▼
@@ -109,7 +107,7 @@ The custom CNN classifier evaluates classroom board imagery to determine content
 - **Output Classes**: `0: background`, `1: board`, `2: text`
 
 ### 2. Keras Reference vs. Production ONNX Verification
-To deploy within Render's free tier (512 MB memory limit), the trained Keras model was exported to ONNX Runtime while preserving exact numerical equivalence.
+The trained Keras reference model was exported to ONNX Runtime. The included validation script compares both models on nine selected images; this checks export consistency, not classification accuracy.
 
 | Metric | Keras Reference Model | Production ONNX Model | Verification Result |
 |---|---|---|---|
@@ -117,34 +115,32 @@ To deploy within Render's free tier (512 MB memory limit), the trained Keras mod
 | **File Format** | Keras v3 Native Zip/HDF5 | Single self-contained ONNX binary | Single file, no external data |
 | **Model Size** | 39,710,284 bytes (37.87 MB) | 13,223,638 bytes (12.61 MB) | **66.7% size reduction** |
 | **SHA-256 Checksum** | `32928cdf3ea1...bacbd2` | `65f791b21044...916bc86` | Cryptographically verified |
-| **Process RSS Memory** | **407.73 MB** (TensorFlow) | **71.00 MB** (ONNX Runtime) | **336.73 MB RAM saved** |
-| **Inference Latency** | ~1700 ms (CPU cold) | **8.54 ms** (CPU) | **~200× faster** |
 | **Real Test Agreement** | 9/9 classes (100%) | 9/9 classes (100%) | **100% agreement** |
-| **Max Absolute Softmax Diff** | Reference | **8.94e-08** | **Mathematically identical** |
+| **Max Absolute Softmax Difference** | Reference | **8.94e-08** | Within the script's `1e-4` tolerance |
 
-### 3. Real Test Image Benchmark Results
-Tested across 9 representative classroom-board test images from `public/samples/` and `dataset/test/`:
+### 3. Selected Image Export Comparison
+The following are current outputs from `scripts/validate_final_cnn.py`. Model agreement is not a measure of classification accuracy against ground-truth labels.
 
 | Test Image File | Keras Class | ONNX Class | Class Match | Keras Confidence | ONNX Confidence | Max Absolute Diff |
 |---|---|---|:---:|---|---|---|
 | `sample_board.jpg` | `background` | `background` | **YES** | 75.66% | 75.66% | $4.47 \times 10^{-8}$ |
 | `sample_diagram.jpg` | `text` | `text` | **YES** | 44.80% | 44.80% | $5.96 \times 10^{-8}$ |
-| `sample_text.jpg` | `text` | `text` | **YES** | 91.43% | 91.43% | $5.96 \times 10^{-8}$ |
+| `sample_text.jpg` | `text` | `text` | **YES** | 91.43% | 91.43% | $2.24 \times 10^{-8}$ |
 | `board_1.jpg` | `text` | `text` | **YES** | 80.37% | 80.37% | $5.96 \times 10^{-8}$ |
-| `text_1.jpg` | `text` | `text` | **YES** | 91.43% | 91.43% | $5.96 \times 10^{-8}$ |
-| `text_2.jpg` | `background` | `background` | **YES** | 62.48% | 62.48% | $5.96 \times 10^{-8}$ |
+| `text_1.jpg` | `text` | `text` | **YES** | 91.43% | 91.43% | $2.24 \times 10^{-8}$ |
+| `text_2.jpg` | `background` | `background` | **YES** | 62.48% | 62.48% | $8.94 \times 10^{-8}$ |
 | `text_3.jpg` | `background` | `background` | **YES** | 51.05% | 51.05% | $5.96 \times 10^{-8}$ |
 | `background_1.jpg` | `background` | `background` | **YES** | 56.55% | 56.55% | $8.94 \times 10^{-8}$ |
 | `background_2.jpg` | `text` | `text` | **YES** | 71.22% | 71.22% | $2.98 \times 10^{-8}$ |
 
 ---
 
-## 🛡️ Production Hardening & Cloud Stability (512 MB Budget)
+## 🛡️ Production Hardening & Cloud Stability
 
-To prevent Linux Out-Of-Memory (OOM) `SIGKILL` termination on Render's 512 MB free tier:
+The production inference path keeps peak memory bounded and avoids loading TensorFlow or Keras:
 
 1. **Lightweight ONNX Runtime Execution Provider**:
-   - Replaced heavy TensorFlow runtime imports with `onnxruntime` CPU engine, freeing 336+ MB RSS.
+   - Replaced production TensorFlow inference imports with `onnxruntime` CPU inference; the Keras model remains as an untouched reference artifact.
 2. **Inference Concurrency Guard (`_inference_semaphore`)**:
    - A strict `Semaphore(1)` serializes CNN/OCR inference and avoids concurrent model copies; competing requests receive a retryable HTTP 503 response.
 3. **Pillow Header-Only Resolution Probe (8 MP Gate)**:
@@ -170,8 +166,8 @@ To prevent Linux Out-Of-Memory (OOM) `SIGKILL` termination on Render's 512 MB fr
 git clone https://github.com/shreyasinha100805-glitch/classroom.git
 cd classroom
 
-# Switch to the stabilized branch
-git checkout fix/render-memory-pipeline
+# Use the production branch
+git checkout main
 
 # Create and activate virtual environment
 python -m venv venv
@@ -223,24 +219,30 @@ python test_phase1.py
 | Endpoint | Method | Payload / Params | Description |
 |---|---|---|---|
 | `/api/health` | `GET` | None | Returns system health, CNN model readiness status, and timestamp |
-| `/api/upload` | `POST` | `multipart/form-data` (`image`) | Ingests classroom-board images with dimension and format validation |
+| `/api/upload` | `POST` | `multipart/form-data` (`images`) | Ingests classroom-board images with dimension and format validation |
 | `/api/files` | `GET` | None | Retrieves list of all uploaded images available for processing |
 | `/api/analyze/jobs` | `POST` | JSON: `{"filename":"<saved_name>"}` | Queues the six-stage pipeline and returns HTTP 202 with a job ID |
 | `/api/analyze/jobs/<job_id>` | `GET` | Job ID in URL | Returns queued/running progress, the completed pipeline result, or a safe failure message |
 | `/api/analyze/<filename>` | `GET` / `POST` | `<filename>` in URL | Backward-compatible synchronous six-stage analysis endpoint |
-| `/api/export-notes/<filename>` | `GET` | `?format=md` or `?format=txt` | Generates and downloads structured academic study notes |
+| `/api/export-notes/<filename>` | `GET` | `?format=md` or `?format=txt` | Downloads notes from the latest completed analysis for that image; returns HTTP 409 until analysis completes |
 | `/uploads/<filename>` | `GET` | `<filename>` in URL | Serves the original raw uploaded image |
 | `/pipeline_output/<filename>`| `GET` | `<filename>` in URL | Serves the OpenCV preprocessed and enhanced board image |
 
 The browser uses the asynchronous job endpoints so long OCR runs do not hold a single proxied request open. Jobs run through one in-process worker and share the inference semaphore with the legacy synchronous endpoint. Under Gunicorn, the worker thread starts in the child process through `post_fork`; app preloading remains enabled and Gunicorn is configured for one worker so job creation and polling use the same manager. Job metadata and results are held in memory; the SQLite database is used for accounts, and no persistent job datastore is configured. A Render restart, deploy, or abrupt process exit can interrupt active jobs and clears their status/results. Because uploads and job state are process-local, this setup requires a single Render instance; multiple replicas need shared storage and queue state. The status endpoint returns HTTP 404 for unknown, expired, or lost job IDs. Upload cleanup protects queued and running job images.
 
-Refreshing or closing the browser clears the page's active polling state because the job ID is not persisted in the browser. A queued or running job can continue on the server while that process remains alive; retrying the same image asks the in-memory manager to reconnect to its active job. A completed result is not restored into the page after refresh, and a Render restart can make the job ID unavailable.
+The browser stores the active job ID per image in `sessionStorage`. After refreshing the same tab, the result page restores polling for the matching uploaded image instead of submitting another job. Closing the tab clears that recovery hint. A Render restart can still lose the in-memory job and its result; in that case the old ID returns HTTP 404 and the user can retry while the upload remains available.
 
 ### Vercel preview configuration
 
-`vercel.mjs` keeps browser requests on relative `/api/...` URLs and rewrites them to Render. Production uses `https://classroom-backend-cp6o.onrender.com`. For Vercel Preview and Development deployments, define `CLASSMIND_PREVIEW_BACKEND_URL` in the Vercel project environment settings and point it at a separate preview Render service, for example `https://classroom-preview.onrender.com`. Use a plain HTTPS service origin without credentials, a path, query string, or fragment. The preview origin must be on `onrender.com` and must differ from production; missing or invalid configuration stops the preview build.
+`vercel.mjs` is Vercel's programmatic configuration file. It keeps browser requests on relative `/api/...` URLs and rewrites them to Render. Production uses the fixed origin `https://classroom-backend-cp6o.onrender.com`. Preview and Development require `CLASSMIND_PREVIEW_BACKEND_URL`; missing or invalid values stop configuration instead of silently using production. Use the actual separate Preview Render service origin, with HTTPS and no credentials, port, path, query string, or fragment.
 
-Install dependencies with `python -m pip install -r requirements.txt`. Run the job tests with `python -m unittest test_analysis_jobs -v` and the existing configuration checks with `python scripts/test_config.py`. Run the real local async upload-to-result check with `python scripts/test_async_api.py`. Measure standalone pipeline RSS with `python scripts/measure_pipeline_rss.py samples/sample_board.jpg`; the script writes its processed preview to a unique temporary directory. To test the UI, start Flask with `python -m flask --app app run --host 127.0.0.1 --port 5000`, upload an image, and confirm the browser sends `POST /api/analyze/jobs` followed by short `GET /api/analyze/jobs/<job_id>` polls.
+To configure Preview without changing Production:
+
+1. In Render, choose **New → Web Service**, select this repository and a non-production branch, and create a separate Preview service. Use Python 3.11, the build command `pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt`, the start command `gunicorn app:app --config gunicorn.conf.py`, and health check path `/api/health`. Keep one instance. Set `TRUSTED_ORIGINS` to the exact Vercel Preview frontend origin(s); generate a Preview-only `SECRET_KEY` and copy the non-secret CPU and image-size environment values from `render.yaml`.
+2. After Render provides the Preview service URL, open the Vercel **classroom** project → **Settings → Environment Variables**. Add `CLASSMIND_PREVIEW_BACKEND_URL` with that exact HTTPS origin and select **Preview** and **Development** only. Leave the Production value and environment untouched.
+3. Save the variable and redeploy the Preview deployment. Do not use the production Render URL for Preview.
+
+Install dependencies with `python -m pip install -r requirements.txt`. Verify static assets with `node build.js` followed by `npm test`; validate rewrites with `node scripts/test_vercel_config.mjs`. Run the job tests with `python -m unittest test_analysis_jobs -v`, Linux Gunicorn lifecycle smoke test with `python scripts/test_gunicorn_lifecycle.py`, and configuration checks with `python scripts/test_config.py`. Run the real local async upload-to-result check with `python scripts/test_async_api.py`. Measure standalone pipeline RSS with `python scripts/measure_pipeline_rss.py samples/sample_board.jpg`; the script writes its processed preview to a unique temporary directory. To test the UI, start Flask with `python -m flask --app app run --host 127.0.0.1 --port 5000`, upload an image, and confirm the browser sends `POST /api/analyze/jobs` followed by short `GET /api/analyze/jobs/<job_id>` polls.
 
 ---
 
@@ -248,5 +250,5 @@ Install dependencies with `python -m pip install -r requirements.txt`. Run the j
 
 - **Course**: Neural Network & Deep Learning (PCCCS582)
 - **Repository**: [https://github.com/shreyasinha100805-glitch/classroom](https://github.com/shreyasinha100805-glitch/classroom)
-- **Primary Branch**: `fix/render-memory-pipeline`
+- **Primary Branch**: `main`
 - **Target Deployed System**: Vercel (Frontend) + Render (AI Inference Backend)

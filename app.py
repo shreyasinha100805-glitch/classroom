@@ -134,6 +134,15 @@ def _safe_pipeline_failure_message(failed_step):
     return "The AI pipeline could not complete. Please retry shortly."
 
 
+def _client_safe_pipeline_result(result):
+    """Remove server-local paths before returning pipeline data to a browser."""
+    if not isinstance(result, dict):
+        return result
+    safe_result = dict(result)
+    safe_result.pop("processed_image", None)
+    return safe_result
+
+
 def _process_analysis_job(filename, progress_callback):
     """Worker adapter that reuses the guarded six-stage analysis pipeline."""
     image_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
@@ -160,7 +169,7 @@ def _process_analysis_job(filename, progress_callback):
         raise analysis_jobs.AnalysisJobError(
             _safe_pipeline_failure_message(result.get("failed_step"))
         )
-    return result
+    return _client_safe_pipeline_result(result)
 
 # ==============================================================================
 # FLASK APPLICATION CONFIGURATION & SECURITY HARDENING
@@ -203,14 +212,10 @@ app.config.update(
 # Item 2: Explicit Trusted CORS Origins (No wildcard + credential conflicts)
 DEFAULT_TRUSTED_ORIGINS = [
     "https://classroom-tan-iota.vercel.app",
-    "https://classroom-swart-one.vercel.app",
-    "https://classroom-theta-silk.vercel.app",
     "https://classroom-backend-cp6o.onrender.com",
-    "http://localhost:3000",
-    "http://localhost:5000",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5000",
 ]
+CORS_ALLOWED_METHODS = "GET, POST, OPTIONS, HEAD"
+CORS_ALLOWED_HEADERS = "Content-Type, Authorization, Accept"
 
 env_origins = os.environ.get("TRUSTED_ORIGINS", "")
 if env_origins:
@@ -220,50 +225,55 @@ else:
 
 
 def is_origin_allowed(origin: str | None) -> bool:
-    """Validates origin against trusted origins and canonical project domains."""
-    if not origin:
+    """Validate an exact configured origin, with localhost only in development."""
+    if not origin or origin in ("*", "null"):
         return False
     if origin in TRUSTED_ORIGINS:
         return True
-    # Match any classroom-* Vercel preview/production deployment
-    if re.match(r"^https://classroom-[a-zA-Z0-9_-]+\.vercel\.app$", origin):
-        return True
-    # Match local development hosts on any valid port
-    if re.match(r"^http://(localhost|127\.0\.0\.1)(:\d+)?$", origin):
+    # Preview deployments must be added explicitly through TRUSTED_ORIGINS.
+    # Keep local browser development convenient without allowing it in production.
+    if not is_production and re.fullmatch(r"http://(localhost|127\.0\.0\.1)(:\d{1,5})?", origin):
         return True
     return False
 
 
+def _vary_on_origin(response):
+    """Append Origin to Vary without discarding headers added by other layers."""
+    values = [value.strip() for value in response.headers.get("Vary", "").split(",") if value.strip()]
+    if not any(value.lower() == "origin" for value in values) and "*" not in values:
+        values.append("Origin")
+    if values:
+        response.headers["Vary"] = ", ".join(values)
+    return response
+
+
 @app.before_request
 def handle_options_preflight():
-    """Handle CORS preflight OPTIONS requests with explicit origin validation."""
+    """Reject unconfigured browser origins and handle allowed preflight requests."""
+    origin = request.headers.get("Origin")
+    if origin and not is_origin_allowed(origin):
+        return jsonify({"success": False, "error": "Origin is not allowed."}), 403
+
     if request.method == "OPTIONS":
         response = app.make_default_options_response()
-        origin = request.headers.get("Origin")
         if origin and is_origin_allowed(origin):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, HEAD, PUT, DELETE"
-            response.headers["Access-Control-Allow-Headers"] = (
-                "Content-Type, Authorization, X-Requested-With, Accept, Origin"
-            )
-            response.headers["Vary"] = "Origin"
-        return response
+            response.headers["Access-Control-Allow-Methods"] = CORS_ALLOWED_METHODS
+            response.headers["Access-Control-Allow-Headers"] = CORS_ALLOWED_HEADERS
+        return _vary_on_origin(response) if origin else response
 
 
 @app.after_request
 def add_cors_headers(response):
-    """Enforce explicit origin matching on all responses (eliminates wildcard credentials)."""
+    """Attach CORS headers only for exact configured origins on every response."""
     origin = request.headers.get("Origin")
     if origin and is_origin_allowed(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, HEAD, PUT, DELETE"
-        response.headers["Access-Control-Allow-Headers"] = (
-            "Content-Type, Authorization, X-Requested-With, Accept, Origin"
-        )
-        response.headers["Vary"] = "Origin"
-    return response
+        response.headers["Access-Control-Allow-Methods"] = CORS_ALLOWED_METHODS
+        response.headers["Access-Control-Allow-Headers"] = CORS_ALLOWED_HEADERS
+    return _vary_on_origin(response) if origin else response
 
 
 # Initialize user database (schema preserved)
@@ -850,7 +860,7 @@ def api_analyze_image(filename):
                 "error": _safe_pipeline_failure_message(failed_step)
             }), 500
 
-        return jsonify(result), 200
+        return jsonify(_client_safe_pipeline_result(result)), 200
     except InferenceBusyError:
         logger.warning("[Analyze] Inference semaphore timed out after 120s for %s", safe_name)
         return jsonify({
@@ -879,38 +889,37 @@ def api_analyze_image(filename):
 def export_notes(filename):
     format_type = request.args.get("format", "md").lower()
     safe_name = secure_filename(filename)
+    if safe_name != filename:
+        return jsonify({"success": False, "error": "The image filename is invalid."}), 400
     image_path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
 
     if not os.path.exists(image_path):
-        return jsonify({"error": "Image file not found"}), 404
+        return jsonify({"success": False, "error": "Image file not found."}), 404
 
-    acquired = _inference_semaphore.acquire(blocking=False)
-    if not acquired:
-        return jsonify({"error": "Server is busy processing another image. Please retry."}), 503
+    # The asynchronous analysis already owns the notes. Exporting them must not
+    # repeat the six-stage inference or occupy the shared model semaphore.
+    result = analysis_jobs.job_manager.completed_result_for_filename(safe_name)
+    notes = result.get("structured_notes") if isinstance(result, dict) else None
+    if not isinstance(notes, dict):
+        return jsonify({
+            "success": False,
+            "error": "Run the analysis and wait for it to complete before exporting notes.",
+        }), 409
 
-    try:
-        result = run_pipeline_data(image_path)
-        notes = result.get("structured_notes", {})
+    if format_type == "txt":
+        content = notes.get("plain_text", "")
+        mimetype = "text/plain"
+        dl_name = f"notes_{safe_name}.txt"
+    else:
+        content = notes.get("markdown", "")
+        mimetype = "text/markdown"
+        dl_name = f"notes_{safe_name}.md"
 
-        if format_type == "txt":
-            content = notes.get("plain_text", "No content extracted.")
-            mimetype = "text/plain"
-            dl_name = f"notes_{safe_name}.txt"
-        else:
-            content = notes.get("markdown", "# No content extracted.")
-            mimetype = "text/markdown"
-            dl_name = f"notes_{safe_name}.md"
-
-        return Response(
-            content,
-            mimetype=mimetype,
-            headers={"Content-Disposition": f"attachment; filename={dl_name}"}
-        )
-    except Exception as exc:
-        app.logger.error(f"Export notes error on {safe_name}: {exc}", exc_info=True)
-        return jsonify({"error": "Unable to export notes."}), 500
-    finally:
-        _inference_semaphore.release()
+    return Response(
+        content,
+        mimetype=mimetype,
+        headers={"Content-Disposition": f"attachment; filename={dl_name}"}
+    )
 
 
 # ==============================================================================

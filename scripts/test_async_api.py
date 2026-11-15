@@ -120,10 +120,23 @@ def main():
                 raise AssertionError(f"Completed result is missing legacy pipeline fields: {missing_keys}")
             if len(result["stages"]) != 6:
                 raise AssertionError(f"Expected six pipeline stages, got {len(result['stages'])}")
-            if any(stage.get("status") not in ("completed", "warning") for stage in result["stages"]):
+            if any(stage.get("status") != "completed" for stage in result["stages"]):
                 raise AssertionError(f"Unexpected stage result: {result['stages']}")
             if not result["structured_notes"].get("title"):
                 raise AssertionError("Structured notes were not returned")
+
+            markdown_export = client.get(f"/api/export-notes/{filename}?format=md")
+            text_export = client.get(f"/api/export-notes/{filename}?format=txt")
+            for export_response in (markdown_export, text_export):
+                if export_response.status_code != 200:
+                    raise AssertionError(
+                        f"Notes export failed: {export_response.status_code} "
+                        f"{export_response.get_data(as_text=True)}"
+                    )
+                if not export_response.headers.get("Content-Disposition", "").startswith("attachment;"):
+                    raise AssertionError("Notes export did not set an attachment disposition")
+                if not export_response.get_data():
+                    raise AssertionError("Notes export returned an empty file")
 
             unknown_response = client.get("/api/analyze/jobs/unknown-local-test-job")
             if unknown_response.status_code != 404:
@@ -139,6 +152,8 @@ def main():
                 "status_poll_count": len(poll_latencies),
                 "max_poll_latency_seconds": round(max(poll_latencies), 4),
                 "unknown_job_status": unknown_response.status_code,
+                "markdown_export_status": markdown_export.status_code,
+                "text_export_status": text_export.status_code,
                 "final_job_status": final_job["status"],
                 "pipeline_stages": result["stages"],
                 "ocr_items": len(result["ocr_items"]),

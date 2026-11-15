@@ -29,7 +29,8 @@ jobs:
 
       - name: Validate Vercel Configuration
         run: |
-          python3 -c "import json; conf = json.load(open('vercel.json')); assert conf.get('outputDirectory') == 'public'; print('vercel.json validation passed')"
+          node --check vercel.mjs
+          node scripts/test_vercel_config.mjs
 
   backend-verification:
     name: Python 3.11 Backend Integrity
@@ -45,18 +46,31 @@ jobs:
 
       - name: Check Python Syntax Across Repository
         run: |
-          python -m compileall -q app.py auth.py pipeline.py cnn/ nlp/ ocr/ preprocessing/
+          python -m compileall -q app.py auth.py analysis_jobs.py pipeline.py gunicorn.conf.py cnn/ nlp/ ocr/ preprocessing/ scripts/
 
       - name: Verify AI Model Files
         run: |
           test -f cnn/model/classroom_cnn.keras || (echo "CNN model file missing!" && exit 1)
-          echo "Classroom CNN model binary verified."
+          test -f cnn/model/classroom_cnn.onnx || (echo "Production ONNX model file missing!" && exit 1)
+          echo "Reference Keras and production ONNX model files verified."
 
       - name: Install Core Server Dependencies
         run: |
           pip install --upgrade pip
-          pip install Flask==3.1.0 Flask-Cors==5.0.0 Werkzeug==3.1.3 Pillow==10.4.0
+          pip install Flask==3.1.0 Werkzeug==3.1.3 Pillow==10.4.0 "gunicorn>=21.2.0,<24.0.0" "numpy>=1.24.0,<3.0.0" "onnxruntime>=1.17.0,<2.0.0"
 
       - name: Verify Flask Routes and Endpoints
         run: |
           python -c "import app; print('Flask server initialized with routes:'); print(app.app.url_map)"
+
+      - name: Run Async Job and API Unit Tests
+        run: |
+          python -m unittest test_analysis_jobs -v
+
+      - name: Run Backend Configuration and ONNX Checks
+        run: |
+          python scripts/test_config.py
+
+      - name: Test Gunicorn post-fork lifecycle on Linux
+        run: |
+          python scripts/test_gunicorn_lifecycle.py

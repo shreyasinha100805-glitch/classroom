@@ -16,8 +16,10 @@ workers = 1
 #   so more threads provide no extra throughput for analysis.
 threads = 2
 
-# Worker class — sync is correct for CPU-bound inference.
-worker_class = "sync"
+# Two request threads keep job polling available while the background analysis
+# thread runs. Explicit gthread avoids relying on Gunicorn's sync-to-gthread
+# auto-switch when threads > 1.
+worker_class = "gthread"
 
 # --- Timeout ---
 # RapidOCR on a cold start (first request, model download ~8 MB) can take >30s.
@@ -61,6 +63,21 @@ def post_fork(server, worker):
         job_pid,
         worker.pid,
     )
+
+
+def worker_exit(server, worker):
+    """Stop the process-local job thread before its Gunicorn worker exits."""
+    from analysis_jobs import job_manager
+
+    stopped = job_manager.shutdown(timeout=2)
+    if stopped:
+        server.log.info("Analysis job worker stopped during worker exit pid=%s", worker.pid)
+    else:
+        server.log.warning(
+            "Analysis job worker did not stop before Gunicorn worker exit pid=%s",
+            worker.pid,
+        )
+    return stopped
 
 # --- CPU thread limits (saves ~5-10 MB RSS on single-core Render instances) ---
 # Applied before workers fork so each worker inherits the limits.

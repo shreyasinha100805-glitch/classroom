@@ -18,7 +18,9 @@ numpy>=1.24.0,<3.0.0
 
 # Computer Vision & Image Processing
 Pillow>=10.0.0,<13.0.0
-opencv-python-headless>=4.8.0,<5.1.0
+# RapidOCR 1.4.4 requires opencv-python; do not install both OpenCV wheels,
+# because both distributions provide the same cv2 module files.
+opencv-python>=4.8.0,<5.1.0
 
 # CNN Classifier — ONNX Runtime CPU
 # classroom_cnn.onnx exported from classroom_cnn.keras (preserved for reference)

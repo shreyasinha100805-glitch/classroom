@@ -91,6 +91,15 @@ class AnalysisJobManager:
         with self._lock:
             return set(self._active_by_filename)
 
+    def completed_result_for_filename(self, filename):
+        """Return the newest retained completed result for an uploaded file."""
+        with self._lock:
+            self._cleanup_locked(time.time())
+            for job in reversed(self._jobs.values()):
+                if job["filename"] == filename and job["status"] == "completed":
+                    return deepcopy(job["result"])
+        return None
+
     def start_worker(self):
         """Start the single worker, used by Gunicorn's post_fork hook."""
         with self._lock:
@@ -98,14 +107,45 @@ class AnalysisJobManager:
             return self._worker_pid
 
     def shutdown(self, timeout=2):
-        """Stop this manager's worker; primarily useful to clean up tests."""
+        """Cancel queued jobs and stop the worker during process shutdown."""
         with self._lock:
             worker = self._worker
-            if not worker or not worker.is_alive() or self._stopping:
-                return
+            if not worker or not worker.is_alive():
+                self._stopping = True
+                return True
+            if self._stopping:
+                return not worker.is_alive()
             self._stopping = True
-            self._queue.put(None, timeout=timeout)
+
+            # Do not begin work that cannot survive the worker process exit.
+            # A job already in the running state is allowed to finish up to the
+            # caller's join timeout; queued jobs get a safe terminal status.
+            while True:
+                try:
+                    item = self._queue.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    if item is not None:
+                        job_id, _filename, _processor = item
+                        self._finish(
+                            job_id,
+                            "failed",
+                            error="The server is restarting. Please retry the analysis.",
+                        )
+                finally:
+                    self._queue.task_done()
+            self._queue.put_nowait(None)
         worker.join(timeout=timeout)
+        if worker.is_alive():
+            logger.warning(
+                "[AnalysisJobs] Worker in pid=%s is still processing during shutdown; "
+                "the process exit may interrupt its in-memory job.",
+                os.getpid(),
+            )
+            return False
+        logger.info("[AnalysisJobs] Worker stopped in pid=%s", os.getpid())
+        return True
 
     def _ensure_worker_locked(self):
         if self._stopping:
@@ -144,7 +184,14 @@ class AnalysisJobManager:
             try:
                 with self._lock:
                     job = self._jobs.get(job_id)
-                    if not job:
+                    if not job or job["status"] != "queued":
+                        continue
+                    if self._stopping:
+                        self._finish(
+                            job_id,
+                            "failed",
+                            error="The server is restarting. Please retry the analysis.",
+                        )
                         continue
                     job["status"] = "running"
                     job["updated_at"] = time.time()

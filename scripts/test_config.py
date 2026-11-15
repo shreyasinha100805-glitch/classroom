@@ -99,14 +99,17 @@ print("\n=== 3. Memory reductions ===")
 check("Production OCR dependency is pinned to RapidOCR 1.4.4",
       "rapidocr-onnxruntime==1.4.4" in req_src and
       "from rapidocr_onnxruntime import RapidOCR" in ocr_src)
+check("Requirements do not install conflicting OpenCV distributions",
+      "opencv-python>=" in req_src and "opencv-python-headless" not in req_src)
 check("preprocessing uses MAX_DIM env-var (default 960)",
       "MAX_DIM" in pre_src and '"960"' in pre_src)
 check("old hardcoded 'max_dim = 1600' removed from preprocessing",
       "max_dim = 1600" not in pre_src)
 check("RapidOCR list/tuple elapsed times are normalized before logging",
-      "isinstance(elapse, (list, tuple))" in ocr_src and
-      "sum(float(value)" in ocr_src and
-      "elapsed_seconds" in ocr_src)
+      "def _elapsed_seconds(elapse)" in ocr_src and
+      "math.isfinite(value)" in ocr_src and
+      "value >= 0" in ocr_src and
+      "elapsed_seconds = _elapsed_seconds(elapse)" in ocr_src)
 check("del intermediate arrays in preprocessing (gray, denoised, enhanced, blurred)",
       pre_src.count("del ") >= 4,
       f"only {pre_src.count('del ')} del statements")
@@ -140,12 +143,17 @@ print("\n=== 5. Inference concurrency guard (NEW) ===")
 # ===========================================================================
 check("_inference_semaphore defined in app.py",
       "_inference_semaphore" in app_src and "threading.Semaphore" in app_src)
-check("_inference_semaphore acquired in api_analyze_image",
-      "_inference_semaphore.acquire" in app_src)
+check("API analysis uses the shared inference wrapper",
+      "_execute_pipeline(image_path" in app_src)
 check("_inference_semaphore released in finally block of api_analyze_image",
       "finally" in app_src and "_inference_semaphore.release()" in app_src)
-check("_inference_semaphore also applied to export_notes (also runs pipeline)",
-      app_src.count("_inference_semaphore.acquire") >= 2)
+export_src = app_src.split("def export_notes(filename):", 1)[1].split(
+    "# SANITIZED GLOBAL ERROR HANDLERS", 1
+)[0]
+check("export_notes reuses completed notes without rerunning inference",
+      "completed_result_for_filename" in export_src and
+      "run_pipeline_data" not in export_src and
+      "_inference_semaphore.acquire" not in export_src)
 check("503 returned when semaphore times out (not 500)",
       "503" in app_src and "busy" in app_src.lower())
 
@@ -187,14 +195,18 @@ check("bind uses os.environ.get('PORT') — no literal $PORT shell expansion",
       "Still uses literal '$PORT' string — shell vars are NOT expanded in Python")
 check("gunicorn.conf.py has workers = 1",
       "workers = 1" in gcfg_src)
-check("gunicorn.conf.py has two request threads alongside serialized inference",
-      "threads = 2" in gcfg_src and "_inference_semaphore" in app_src,
+check("gunicorn.conf.py uses gthread with two request threads alongside serialized inference",
+      'worker_class = "gthread"' in gcfg_src and "threads = 2" in gcfg_src and
+      "_inference_semaphore" in app_src,
       "two threads are expected for one analysis plus lightweight requests")
 check("gunicorn.conf.py has preload_app = True",
       "preload_app = True" in gcfg_src)
 check("Gunicorn post_fork starts the job manager in the child process",
       "def post_fork(server, worker):" in gcfg_src and
       "job_manager.start_worker()" in gcfg_src)
+check("Gunicorn worker_exit stops the process-local analysis thread",
+      "def worker_exit(server, worker):" in gcfg_src and
+      "job_manager.shutdown(timeout=2)" in gcfg_src)
 check("job manager prevents duplicate worker threads per process",
       "self._worker_pid == current_pid" in jobs_src and
       "def start_worker(self):" in jobs_src)
