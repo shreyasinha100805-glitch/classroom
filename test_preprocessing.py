@@ -4,11 +4,13 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from unittest.mock import patch
 
 from preprocessing.image_processing import (
     OCR_VARIANTS,
     make_ocr_variant,
     preprocess_image,
+    safe_imread,
 )
 
 
@@ -52,6 +54,17 @@ class OCRPreprocessingTests(unittest.TestCase):
     def test_unknown_variant_is_an_explicit_error(self):
         with self.assertRaisesRegex(ValueError, "Unknown OCR image variant"):
             make_ocr_variant(self.image, "magic")
+
+    def test_failed_header_probe_rejects_before_opencv_decode(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "malformed.jpg"
+            source.write_bytes(b"not an image")
+            with patch(
+                "preprocessing.image_processing.PilImage.open",
+                side_effect=OSError("invalid image header"),
+            ), patch("preprocessing.image_processing.cv2.imdecode") as decode:
+                self.assertIsNone(safe_imread(str(source)))
+            decode.assert_not_called()
 
 
 if __name__ == "__main__":

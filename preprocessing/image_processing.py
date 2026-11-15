@@ -167,7 +167,8 @@ def safe_imread(path: str):
     decompression bombs from large JPEGs consuming >64 MB in the bytearray
     buffer before the resize step can shrink them.
 
-    Returns None if the image exceeds MAX_UPLOAD_PIXELS.
+    Returns None if the image exceeds MAX_UPLOAD_PIXELS or Pillow cannot
+    safely probe its header before the full decode.
     """
     # Cheap header-only size check via Pillow (does not load pixel data)
     try:
@@ -182,7 +183,9 @@ def safe_imread(path: str):
                 return None
     except Exception as probe_exc:
         logger.warning("Could not probe image dimensions for %s: %s", path, probe_exc)
-        # Fall through and attempt full decode — cv2 will handle corrupt files
+        # Do not let a failed header probe bypass the pixel limit with a full
+        # OpenCV decode. Supported uploads are JPEG/PNG, both readable by Pillow.
+        return None
 
     try:
         with open(path, "rb") as f:
