@@ -5,8 +5,9 @@ Run from project root: python scripts/test_config.py
 Covers:
   - Syntax correctness
   - Import / eager-load guards
-  - Memory reductions (mag_ratio, MAX_DIM, del statements)
-  - Pipeline resilience (gc, logging, graceful degradation)
+  - RapidOCR + ONNX Runtime use and elapsed-time compatibility
+  - Image-size memory controls and buffer release
+  - Pipeline resilience (gc, logging, explicit OCR failure handling)
   - Gunicorn deployment correctness ($PORT bug, threads, preload_app)
   - Pixel dimension gating (validate_image, safe_imread, preprocessing)
   - Inference semaphore presence and correct use in both pipeline routes
@@ -47,6 +48,7 @@ with open("gunicorn.conf.py") as f:   gcfg_src = f.read()
 with open("requirements.txt") as f:   req_src = f.read()
 with open("Procfile") as f:           proc_src = f.read()
 with open("render.yaml") as f:        render_src = f.read()
+with open("analysis_jobs.py") as f:    jobs_src = f.read()
 
 # ===========================================================================
 print("\n=== 1. Syntax checks ===")
@@ -65,39 +67,49 @@ for path in ["app.py", "pipeline.py", "cnn/predict.py", "ocr/extractor.py",
 print("\n=== 2. Import / eager-load guards ===")
 # ===========================================================================
 lines = app_src.split("\n")
-dynamo_line = next(
-    (i for i, l in enumerate(lines) if "TORCHDYNAMO_DISABLE" in l and "setdefault" in l), None
-)
 top_torch_lines = [i + 1 for i, l in enumerate(lines) if l.strip() == "import torch"]
 check("No bare 'import torch' at app.py module level",
       top_torch_lines == [], f"found at lines {top_torch_lines}")
-check("TORCHDYNAMO_DISABLE set in app.py before any framework import",
-      dynamo_line is not None)
-check("TF_ENABLE_ONEDNN_OPTS set in app.py",
-      "TF_ENABLE_ONEDNN_OPTS" in app_src)
+cv2_import_line = app_src.find("import cv2")
+thread_envs = ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "CUDA_VISIBLE_DEVICES"]
+check("ONNX/OpenMP thread limits are configured before OpenCV import",
+      cv2_import_line > 0 and all(
+          app_src.find(f'os.environ.setdefault("{key}"') < cv2_import_line
+          for key in thread_envs
+      ))
+check("app.py does not eagerly import PyTorch, TensorFlow, or Keras",
+      re.search(r"^(?:import|from)\s+(?:torch|tensorflow|keras)(?:[.\s]|$)",
+                app_src, re.MULTILINE) is None)
 check("CUDA_VISIBLE_DEVICES set in app.py",
       "CUDA_VISIBLE_DEVICES" in app_src)
-check("TORCHDYNAMO_DISABLE set in ocr/extractor.py",
-      "TORCHDYNAMO_DISABLE" in ocr_src)
-check("TORCHDYNAMO_DISABLE set in cnn/predict.py",
-      "TORCHDYNAMO_DISABLE" not in cnn_src,  # ONNX version does NOT set this — only OCR needs it
-      "predict.py now uses onnxruntime, not torch — TORCHDYNAMO_DISABLE is irrelevant here")
-check("TF_ENABLE_ONEDNN_OPTS NOT in cnn/predict.py (ONNX version has no TF)",
+rapidocr_import_line = ocr_src.find("from rapidocr_onnxruntime import RapidOCR")
+reader_function_line = ocr_src.find("def get_reader")
+check("RapidOCR import remains lazy inside get_reader()",
+      reader_function_line >= 0 and rapidocr_import_line > reader_function_line)
+check("ONNX CNN has no Torch Dynamo dependency",
+      "TORCHDYNAMO_DISABLE" not in cnn_src,
+      "predict.py now uses onnxruntime, not torch — Torch Dynamo configuration is not applicable")
+check("ONNX CNN has no TensorFlow oneDNN dependency",
       "TF_ENABLE_ONEDNN_OPTS" not in cnn_src,
-      "predict.py still references TF env var — TF was removed")
+      "predict.py must not require TensorFlow environment configuration")
 
 # ===========================================================================
 print("\n=== 3. Memory reductions ===")
 # ===========================================================================
-check("OCR mag_ratio=1.0 (was 1.5)",
-      "mag_ratio=1.0" in ocr_src and "mag_ratio=1.5" not in ocr_src,
-      "mag_ratio=1.5 still present" if "mag_ratio=1.5" in ocr_src else "1.0 not found")
+check("Production OCR dependency is pinned to RapidOCR 1.4.4",
+      "rapidocr-onnxruntime==1.4.4" in req_src and
+      "from rapidocr_onnxruntime import RapidOCR" in ocr_src)
+check("Requirements do not install conflicting OpenCV distributions",
+      "opencv-python>=" in req_src and "opencv-python-headless" not in req_src)
 check("preprocessing uses MAX_DIM env-var (default 960)",
       "MAX_DIM" in pre_src and '"960"' in pre_src)
 check("old hardcoded 'max_dim = 1600' removed from preprocessing",
       "max_dim = 1600" not in pre_src)
-check("torch.inference_mode() used in OCR extractor",
-      "torch.inference_mode" in ocr_src)
+check("RapidOCR list/tuple elapsed times are normalized before logging",
+      "def _elapsed_seconds(elapse)" in ocr_src and
+      "math.isfinite(value)" in ocr_src and
+      "value >= 0" in ocr_src and
+      "elapsed_seconds = _elapsed_seconds(elapse)" in ocr_src)
 check("del intermediate arrays in preprocessing (gray, denoised, enhanced, blurred)",
       pre_src.count("del ") >= 4,
       f"only {pre_src.count('del ')} del statements")
@@ -131,12 +143,17 @@ print("\n=== 5. Inference concurrency guard (NEW) ===")
 # ===========================================================================
 check("_inference_semaphore defined in app.py",
       "_inference_semaphore" in app_src and "threading.Semaphore" in app_src)
-check("_inference_semaphore acquired in api_analyze_image",
-      "_inference_semaphore.acquire" in app_src)
+check("API analysis uses the shared inference wrapper",
+      "_execute_pipeline(image_path" in app_src)
 check("_inference_semaphore released in finally block of api_analyze_image",
       "finally" in app_src and "_inference_semaphore.release()" in app_src)
-check("_inference_semaphore also applied to export_notes (also runs pipeline)",
-      app_src.count("_inference_semaphore.acquire") >= 2)
+export_src = app_src.split("def export_notes(filename):", 1)[1].split(
+    "# SANITIZED GLOBAL ERROR HANDLERS", 1
+)[0]
+check("export_notes reuses completed notes without rerunning inference",
+      "completed_result_for_filename" in export_src and
+      "run_pipeline_data" not in export_src and
+      "_inference_semaphore.acquire" not in export_src)
 check("503 returned when semaphore times out (not 500)",
       "503" in app_src and "busy" in app_src.lower())
 
@@ -154,8 +171,17 @@ check("_log_memory() helper defined in pipeline.py",
       "_log_memory" in pipe_src)
 check("Pipeline returns partial results on CNN failure — not exception",
       'predicted_class = "error"' in pipe_src)
-check("Pipeline returns partial results on OCR failure — not exception",
-      "ocr_clean = []" in pipe_src)
+ocr_failure_block = ""
+if "except OCREngineUnavailable:" in pipe_src:
+    ocr_failure_block = pipe_src.split("except OCREngineUnavailable:", 1)[1].split(
+        "except Exception as exc:", 1
+    )[0]
+check("OCR engine failures propagate instead of returning empty-text success",
+      "raise" in ocr_failure_block and '"status": "warning"' not in ocr_failure_block)
+check("Analyze endpoint maps OCR engine failures to an explicit 503",
+      "isinstance(exc, OCREngineUnavailable)" in app_src and
+      '"error_code": "ocr_unavailable"' in app_src and
+      '"error": "Text extraction is temporarily unavailable.' in app_src)
 check("Pipeline returns partial results on NLP failure — not exception",
       "keywords = []" in pipe_src and "topics = []" in pipe_src)
 
@@ -169,16 +195,26 @@ check("bind uses os.environ.get('PORT') — no literal $PORT shell expansion",
       "Still uses literal '$PORT' string — shell vars are NOT expanded in Python")
 check("gunicorn.conf.py has workers = 1",
       "workers = 1" in gcfg_src)
-check("threads reduced to 2 (down from 4) for TF thread-safety",
-      "threads = 2" in gcfg_src,
-      "threads=4 risks concurrent TF model.predict() calls without semaphore")
+check("gunicorn.conf.py uses gthread with two request threads alongside serialized inference",
+      'worker_class = "gthread"' in gcfg_src and "threads = 2" in gcfg_src and
+      "_inference_semaphore" in app_src,
+      "two threads are expected for one analysis plus lightweight requests")
 check("gunicorn.conf.py has preload_app = True",
       "preload_app = True" in gcfg_src)
-check("gunicorn.conf.py has max_requests (memory leak guard)",
+check("Gunicorn post_fork starts the job manager in the child process",
+      "def post_fork(server, worker):" in gcfg_src and
+      "job_manager.start_worker()" in gcfg_src)
+check("Gunicorn worker_exit stops the process-local analysis thread",
+      "def worker_exit(server, worker):" in gcfg_src and
+      "job_manager.shutdown(timeout=2)" in gcfg_src)
+check("job manager prevents duplicate worker threads per process",
+      "self._worker_pid == current_pid" in jobs_src and
+      "def start_worker(self):" in jobs_src)
+check("gunicorn.conf.py explicitly configures max_requests",
       "max_requests" in gcfg_src)
-check("max_requests reduced to 50 (conservative for 512 MB instance)",
-      "max_requests = 50" in gcfg_src,
-      "max_requests=100 is too generous — TF/PyTorch caches grow over time")
+check("Gunicorn request-count recycling is disabled for in-process background jobs",
+      "max_requests = 0" in gcfg_src and "max_requests_jitter = 0" in gcfg_src,
+      "a count-based recycle could terminate a long job during polling")
 check("Procfile uses --config gunicorn.conf.py",
       "gunicorn.conf.py" in proc_src)
 check("render.yaml uses --config gunicorn.conf.py",
@@ -190,10 +226,15 @@ check("No µ (non-ASCII) in gunicorn.conf.py access_log_format (causes encoding 
 # ===========================================================================
 print("\n=== 8. render.yaml env completeness ===")
 # ===========================================================================
-for key in ["TORCHDYNAMO_DISABLE", "TORCH_COMPILE_DISABLE", "TF_CPP_MIN_LOG_LEVEL",
-            "TF_ENABLE_ONEDNN_OPTS", "CUDA_VISIBLE_DEVICES",
+for key in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+            "CUDA_VISIBLE_DEVICES", "KMP_DUPLICATE_LIB_OK",
             "PREPROCESS_MAX_DIM", "MAX_UPLOAD_PIXELS"]:
     check(f"render.yaml has env var: {key}", key in render_src)
+check("render.yaml omits legacy PyTorch/TensorFlow tuning variables",
+      all(key not in render_src for key in [
+          "TORCHDYNAMO_DISABLE", "TORCH_COMPILE_DISABLE", "TF_CPP_MIN_LOG_LEVEL",
+          "TF_ENABLE_ONEDNN_OPTS"
+      ]))
 
 # ===========================================================================
 print("\n=== 9. Logging ===")
@@ -273,31 +314,15 @@ except Exception as _e:
     check("ONNX model live inference sanity check", False, str(_e))
 
 # ===========================================================================
-print("\n=== 11. Memory budget analysis (computed — not measured on Render) ===")
+print("\n=== 11. Memory validation ===")
 # ===========================================================================
-print("  NOTE: All figures below are estimates. Runtime RSS must be verified")
-print("  on the deployed Render instance via Render logs after merge.")
+print("  NOTE: use real-image measurements; monitor Render RSS separately.")
 print()
 
-budget = [
-    ("OS + Python interpreter",                       50),
-    ("Flask + gunicorn (2 threads)",                  22),
-    ("NumPy + Pillow",                                30),
-    ("OpenCV (cv2)",                                  60),
-    ("PyTorch import (dynamo disabled)",              70),
-    ("ONNX Runtime import + CNN model (~12.6 MB)",   25),
-    ("EasyOCR CRAFT+CRNN models in RAM",            120),
-    ("OCR inference tensor (960px, mag_ratio=1.0)",  25),
-    ("safe_imread peak (10 MB JPEG, np.frombuffer)", 20),
-]
-total = sum(mb for _, mb in budget)
-limit = 512
-for name, mb in budget:
-    print(f"    {name}: ~{mb} MB")
-print(f"  ESTIMATED TOTAL: ~{total} MB  |  LIMIT: {limit} MB  |  HEADROOM: ~{limit - total} MB")
-check(f"Estimated RSS fits within {limit} MB limit",
-      total <= limit,
-      f"Estimated {total} MB > {limit} MB limit")
+print("  Full-pipeline RSS is measured from a real image by scripts/measure_pipeline_rss.py.")
+print("  Local measurements do not substitute for runtime monitoring on Render.")
+check("real-image RSS measurement script is available",
+      os.path.isfile("scripts/measure_pipeline_rss.py"))
 
 # ===========================================================================
 print("\n=== 12. Runtime tests NOT yet performed (require live Render instance) ===")
@@ -316,7 +341,7 @@ runtime_tests = [
     "Oversized image (>8 MP) returns HTTP 400 with pixel-count error message",
     "Concurrent requests: second /api/analyze returns 503 while first is running",
     "3+ repeated analyses: Render logs show stable RSS (no unbounded growth)",
-    "preload_app=True verified: ONNX/EasyOCR init logs appear BEFORE 'Booting worker'",
+    "preload_app=True verified: CNN ONNX and lazy RapidOCR startup behavior",
     "gunicorn bind port: startup log shows correct Render-assigned PORT (not $PORT literal)",
     "ONNX model loads without error: 'CNN ONNX session ready' appears in startup logs",
     "ONNX inference produces same 3-class output as before: class in [background, board, text]",

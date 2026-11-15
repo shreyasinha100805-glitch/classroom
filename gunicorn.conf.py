@@ -6,6 +6,7 @@ import os
 # --- Worker configuration ---
 # 1 worker: ONNX models are loaded once per process.
 # Multiple workers would multiply RSS by N (each loads its own CNN + OCR models).
+# Keep one process so the in-memory job queue and status polls share one manager.
 workers = 1
 
 # 2 threads:
@@ -15,8 +16,10 @@ workers = 1
 #   so more threads provide no extra throughput for analysis.
 threads = 2
 
-# Worker class — sync is correct for CPU-bound inference.
-worker_class = "sync"
+# Two request threads keep job polling available while the background analysis
+# thread runs. Explicit gthread avoids relying on Gunicorn's sync-to-gthread
+# auto-switch when threads > 1.
+worker_class = "gthread"
 
 # --- Timeout ---
 # RapidOCR on a cold start (first request, model download ~8 MB) can take >30s.
@@ -35,17 +38,46 @@ errorlog = "-"
 loglevel = "info"
 access_log_format = '%(h)s "%(r)s" %(s)s %(b)s %(D)sus'
 
-# --- Memory management ---
-# Restart a worker after 100 requests to prevent slow RSS growth
-# from ONNX Runtime internal caches accumulating over many requests.
-# Higher than the previous 50 (EasyOCR stack) since RapidOCR's
-# per-request memory growth is minimal.
-max_requests = 100
-max_requests_jitter = 10
+# --- Worker lifecycle and memory ---
+# Do not recycle the worker by request count: an async analysis runs in a
+# process-local thread while the browser makes many short polling requests.
+# A count-based recycle could kill that job mid-inference. Local repeated-run
+# RSS testing stays below the 512 MB target; continue monitoring Render RSS.
+# Platform restarts can still interrupt in-memory jobs.
+max_requests = 0
+max_requests_jitter = 0
 
-# Preload the app in the master process so model weights are loaded once
-# before the worker starts serving requests (no cold-start penalty on first request).
+# Preload app/model imports in the master so read-only model pages are shared by
+# fork. The job manager does not start a thread during import; it starts lazily
+# on the first POST inside the forked worker process.
 preload_app = True
+
+
+def post_fork(server, worker):
+    """Start the job thread in the child after Gunicorn has forked it."""
+    from analysis_jobs import job_manager
+
+    job_pid = job_manager.start_worker()
+    server.log.info(
+        "Analysis job manager pid=%s initialized for Gunicorn worker pid=%s",
+        job_pid,
+        worker.pid,
+    )
+
+
+def worker_exit(server, worker):
+    """Stop the process-local job thread before its Gunicorn worker exits."""
+    from analysis_jobs import job_manager
+
+    stopped = job_manager.shutdown(timeout=2)
+    if stopped:
+        server.log.info("Analysis job worker stopped during worker exit pid=%s", worker.pid)
+    else:
+        server.log.warning(
+            "Analysis job worker did not stop before Gunicorn worker exit pid=%s",
+            worker.pid,
+        )
+    return stopped
 
 # --- CPU thread limits (saves ~5-10 MB RSS on single-core Render instances) ---
 # Applied before workers fork so each worker inherits the limits.

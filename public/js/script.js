@@ -257,6 +257,14 @@ function initConstellationBackground() {
     const canvas = document.getElementById('particle-canvas');
     if (!canvas) return;
 
+    const compactViewport = window.matchMedia && window.matchMedia('(max-width: 1024px)').matches;
+    const touchInput = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (compactViewport || touchInput || reducedMotion) {
+        canvas.setAttribute('aria-hidden', 'true');
+        return;
+    }
+
     const ctx = canvas.getContext('2d');
     let width = (canvas.width = window.innerWidth);
     let height = (canvas.height = window.innerHeight);
@@ -612,7 +620,10 @@ function initUploadDropzone() {
 
     function renderStaging() {
         const files = Array.from(stagedDataTransfer.files);
-        previewGrid.innerHTML = '';
+        previewGrid.querySelectorAll('[data-preview-object-url]').forEach((img) => {
+            URL.revokeObjectURL(img.dataset.previewObjectUrl);
+        });
+        previewGrid.replaceChildren();
 
         if (files.length === 0) {
             stagingArea.classList.remove('has-files');
@@ -634,8 +645,12 @@ function initUploadDropzone() {
 
             const img = document.createElement('img');
             img.className = 'preview-thumb-img';
-            img.src = URL.createObjectURL(file);
+            const previewUrl = URL.createObjectURL(file);
+            img.src = previewUrl;
+            img.dataset.previewObjectUrl = previewUrl;
             img.alt = file.name;
+            img.loading = 'lazy';
+            img.decoding = 'async';
 
             const removeBtn = document.createElement('button');
             removeBtn.type = 'button';
@@ -1127,67 +1142,270 @@ function initAnalysisDrawer() {
     const drawer = document.getElementById('analysis-drawer');
     const closeBtn = document.getElementById('drawer-close');
     const drawerContent = document.getElementById('drawer-content');
+    let activeAnalysisRun = 0;
+    let activeAnalysisController = null;
+    let activeAnalysisButton = null;
+    const analysisStages = [
+        'Image Upload & Validation',
+        'Image Preprocessing',
+        'CNN Classification',
+        'OCR Text Extraction',
+        'NLP Analysis',
+        'Structured Notes Generation'
+    ];
+
+    function activeJobStorageKey(savedName) {
+        return `classmind_active_analysis:${encodeURIComponent(savedName)}`;
+    }
+
+    function readActiveJobId(savedName) {
+        try {
+            const jobId = sessionStorage.getItem(activeJobStorageKey(savedName));
+            return jobId && jobId.length <= 128 ? jobId : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function storeActiveJobId(savedName, jobId) {
+        try {
+            sessionStorage.setItem(activeJobStorageKey(savedName), jobId);
+        } catch (_) {
+            // Keep analysis usable when storage is disabled or unavailable.
+        }
+    }
+
+    function clearActiveJobId(savedName, jobId) {
+        try {
+            const key = activeJobStorageKey(savedName);
+            if (sessionStorage.getItem(key) === jobId) sessionStorage.removeItem(key);
+        } catch (_) {
+            // Storage is only a recovery hint; server job state remains authoritative.
+        }
+    }
 
     if (!drawer) return;
 
-    if (closeBtn) {
+    if (closeBtn && closeBtn.dataset.analysisCloseBound !== 'true') {
+        closeBtn.dataset.analysisCloseBound = 'true';
         closeBtn.addEventListener('click', () => {
             drawer.classList.remove('open');
         });
     }
 
     document.querySelectorAll('.btn-run-pipeline').forEach((btn) => {
+        if (btn.dataset.analysisRunBound === 'true') return;
+        btn.dataset.analysisRunBound = 'true';
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             const savedName = btn.getAttribute('data-saved-name');
             const originalName = btn.getAttribute('data-orig-name') || savedName;
-            runAnalysis(savedName, originalName);
+            runAnalysis(savedName, originalName, btn);
         });
     });
 
-    function runAnalysis(savedName, originalName) {
+    const recoveryButton = Array.from(document.querySelectorAll('.btn-run-pipeline')).find((btn) => {
+        const savedName = btn.getAttribute('data-saved-name');
+        return savedName && readActiveJobId(savedName);
+    });
+    if (recoveryButton) {
+        const savedName = recoveryButton.getAttribute('data-saved-name');
+        const originalName = recoveryButton.getAttribute('data-orig-name') || savedName;
+        const jobId = readActiveJobId(savedName);
+        const recoveryKey = `${savedName}:${jobId}`;
+        if (drawer.dataset.recoveredAnalysis !== recoveryKey) {
+            drawer.dataset.recoveredAnalysis = recoveryKey;
+            runAnalysis(savedName, originalName, recoveryButton);
+        }
+    }
+
+    async function requestAnalysisJson(url, options, timeoutMs) {
+        const controller = new AbortController();
+        activeAnalysisController = controller;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        try {
+            const res = await fetch(url, { ...options, signal: controller.signal });
+            const contentType = res.headers.get('content-type') || '';
+            const body = await res.text();
+            let data = null;
+            try {
+                data = body ? JSON.parse(body) : null;
+            } catch (e) {
+                data = null;
+            }
+            if (!res.ok) {
+                const err = new Error((data && data.error)
+                    ? data.error
+                    : `The analysis service returned HTTP ${res.status}${contentType.includes('json') ? '.' : ' from an upstream service.'} Please retry shortly.`);
+                err.status = res.status;
+                throw err;
+            }
+            return data;
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                err.message = 'The analysis service timed out while responding.';
+                err.retryable = true;
+            } else if (err instanceof TypeError) {
+                err.message = 'Cannot reach the analysis service. Check the connection and retry.';
+                err.retryable = true;
+            }
+            throw err;
+        } finally {
+            clearTimeout(timeoutId);
+            if (activeAnalysisController === controller) activeAnalysisController = null;
+        }
+    }
+
+    function updateDrawerProgress(status, currentStage) {
+        const statusEl = document.getElementById('analysis-stage-status');
+        if (status === 'reconnecting') {
+            if (statusEl) statusEl.textContent = 'Reconnecting to the analysis service…';
+            return;
+        }
+        if (statusEl) {
+            statusEl.textContent = status === 'queued'
+                ? 'Queued — waiting for the analysis worker…'
+                : `Current stage: ${currentStage || 'Starting analysis…'}`;
+        }
+
+        const currentIndex = Math.max(0, analysisStages.indexOf(currentStage));
+        drawerContent.querySelectorAll('.step-node[data-stage-order]').forEach((node) => {
+            const index = Number(node.dataset.stageOrder);
+            const circle = node.querySelector('.step-circle');
+            node.classList.remove('completed', 'running');
+            if (status === 'running' && index < currentIndex) {
+                node.classList.add('completed');
+                if (circle) circle.textContent = '✓';
+            } else if (status === 'running' && index === currentIndex) {
+                node.classList.add('running');
+                if (circle) circle.textContent = '⚡';
+            } else if (circle) {
+                circle.textContent = node.dataset.stageNumber;
+            }
+        });
+    }
+
+    function findRunButton(savedName) {
+        return Array.from(document.querySelectorAll('.btn-run-pipeline')).find(
+            (btn) => btn.getAttribute('data-saved-name') === savedName
+        ) || null;
+    }
+
+    function setRunButtonBusy(button, isBusy) {
+        if (!button) return;
+        button.disabled = isBusy;
+        button.setAttribute('aria-busy', String(isBusy));
+    }
+
+    function runAnalysis(savedName, originalName, triggerButton = null) {
+        if (activeAnalysisController) activeAnalysisController.abort();
+        const runId = ++activeAnalysisRun;
+        setRunButtonBusy(activeAnalysisButton, false);
+        activeAnalysisButton = triggerButton || findRunButton(savedName);
+        setRunButtonBusy(activeAnalysisButton, true);
         drawer.classList.add('open');
         showDrawerLoading(originalName);
+        const savedJobId = readActiveJobId(savedName);
+        updateDrawerProgress(savedJobId ? 'reconnecting' : 'queued');
 
-        // /api/analyze/* is proxied by vercel.json → Render backend
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 180000);
-        fetch(`/api/analyze/${encodeURIComponent(savedName)}`, {
-            signal: controller.signal
-        })
-            .then(async (res) => {
-                clearTimeout(timeoutId);
-                let data = null;
-                try {
-                    data = await res.json();
-                } catch (e) {
-                    data = null;
+        (async () => {
+            try {
+                let jobId = savedJobId;
+                let initialStatus = savedJobId ? null : 'queued';
+                if (!jobId) {
+                    const accepted = await requestAnalysisJson('/api/analyze/jobs', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ filename: savedName })
+                    }, 110000);
+                    if (runId !== activeAnalysisRun) return;
+                    if (!accepted || !accepted.job_id) {
+                        throw new Error('The analysis service did not return a job ID. Please retry.');
+                    }
+
+                    jobId = accepted.job_id;
+                    initialStatus = accepted.status || 'queued';
+                    storeActiveJobId(savedName, jobId);
                 }
-                if (!res.ok) {
-                    const msg = (data && data.error) ? data.error : `Server Error (HTTP ${res.status})`;
-                    throw new Error(msg);
+
+                const deadline = Date.now() + 15 * 60 * 1000;
+                let consecutivePollErrors = 0;
+
+                while (Date.now() < deadline && runId === activeAnalysisRun) {
+                    if (initialStatus) {
+                        updateDrawerProgress(initialStatus);
+                        initialStatus = null;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 2500));
+                    if (runId !== activeAnalysisRun) return;
+
+                    let job;
+                    try {
+                        job = await requestAnalysisJson(
+                            `/api/analyze/jobs/${encodeURIComponent(jobId)}`,
+                            { headers: { 'Accept': 'application/json' } },
+                            15000
+                        );
+                        consecutivePollErrors = 0;
+                    } catch (err) {
+                        if (runId !== activeAnalysisRun) return;
+                        if (err.status === 404) {
+                            clearActiveJobId(savedName, jobId);
+                            throw new Error('This analysis job is no longer available. It may have been interrupted by a server restart. Retry to reconnect or start it again.');
+                        }
+                        if (err.retryable || err.status >= 500) {
+                            consecutivePollErrors += 1;
+                            if (consecutivePollErrors <= 5) {
+                                updateDrawerProgress('reconnecting');
+                                continue;
+                            }
+                        }
+                        throw err;
+                    }
+
+                    if (!job || !job.status) {
+                        throw new Error('The analysis service returned an invalid job status. Please retry.');
+                    }
+                    if (job.status === 'queued' || job.status === 'running') {
+                        updateDrawerProgress(job.status, job.current_stage);
+                        continue;
+                    }
+                    if (job.status === 'completed') {
+                        if (!job.result) throw new Error('The completed job did not include analysis results.');
+                        clearActiveJobId(savedName, jobId);
+                        renderDrawerResults(job.result, originalName);
+                        showToast('AI pipeline analysis completed!', 'success');
+                        return;
+                    }
+                    if (job.status === 'failed') {
+                        clearActiveJobId(savedName, jobId);
+                        throw new Error(job.error || 'The image could not be processed. Please retry.');
+                    }
+                    if (job.status === 'not_found') {
+                        clearActiveJobId(savedName, jobId);
+                        throw new Error(job.error || 'This analysis job is no longer available. Retry the analysis.');
+                    }
+                    throw new Error('The analysis service returned an unknown job status. Please retry.');
                 }
-                return data;
-            })
-            .then((data) => {
-                if (!data) throw new Error('Received empty response from inference server.');
-                if (data.error && !data.success && !data.classification) {
-                    renderDrawerError(data.error, savedName, originalName);
-                } else {
-                    renderDrawerResults(data, originalName);
-                    showToast('AI pipeline analysis completed!', 'success');
+
+                if (runId === activeAnalysisRun) {
+                    renderDrawerError(
+                        'Analysis is taking longer than expected. It may still be running; retry to reconnect to the active job.',
+                        savedName,
+                        originalName
+                    );
                 }
-            })
-            .catch((err) => {
-                clearTimeout(timeoutId);
-                let msg = err.message || 'Failed to connect to inference engine.';
-                if (err.name === 'AbortError') {
-                    msg = 'Pipeline inference timed out. High-resolution OCR is still completing on CPU.';
-                } else if (msg === 'Failed to fetch') {
-                    msg = `Cannot reach backend server. Ensure the Render backend service is active and accessible.`;
+            } catch (err) {
+                if (runId !== activeAnalysisRun) return;
+                renderDrawerError(err.message || 'Failed to connect to the analysis service.', savedName, originalName);
+            } finally {
+                if (runId === activeAnalysisRun) {
+                    setRunButtonBusy(activeAnalysisButton, false);
+                    activeAnalysisButton = null;
                 }
-                renderDrawerError(msg, savedName, originalName);
-            });
+            }
+        })();
     }
 
     function showDrawerLoading(name) {
@@ -1201,48 +1419,48 @@ function initAnalysisDrawer() {
                 <h4 style="font-family: var(--font-heading); font-size: 1.15rem; color: #fff; margin-bottom: 8px;">
                     Processing "${escapeHtml(name)}"
                 </h4>
-                <p style="font-size: 0.85rem; color: var(--primary-cyan); font-family: var(--font-mono);">
-                    Executing 6-Stage Deep Learning & Linguistic Pipeline...
+                <p id="analysis-stage-status" style="font-size: 0.85rem; color: var(--primary-cyan); font-family: var(--font-mono);">
+                    Queued — waiting for the analysis worker…
                 </p>
 
-                <!-- 6-Stage Timeline Simulation -->
+                <!-- Live progress reported by the background analysis job -->
                 <div class="pipeline-steps-timeline" style="margin-top: 35px; text-align: left;">
-                    <div class="step-node completed">
-                        <div class="step-circle">✓</div>
+                    <div class="step-node" data-stage-order="0" data-stage-number="1.0">
+                        <div class="step-circle">1.0</div>
                         <div class="step-content">
                             <h4>1.0 Image Upload & Validation</h4>
                             <p>User uploads the classroom-board image. Image format & dimensions verified.</p>
                         </div>
                     </div>
-                    <div class="step-node completed">
-                        <div class="step-circle">✓</div>
+                    <div class="step-node" data-stage-order="1" data-stage-number="2.0">
+                        <div class="step-circle">2.0</div>
                         <div class="step-content">
                             <h4>2.0 Image Preprocessing</h4>
                             <p>The image is resized, denoised, enhanced and sharpened.</p>
                         </div>
                     </div>
-                    <div class="step-node running">
-                        <div class="step-circle">⚡</div>
+                    <div class="step-node" data-stage-order="2" data-stage-number="3.0">
+                        <div class="step-circle">3.0</div>
                         <div class="step-content">
                             <h4>3.0 CNN Classification</h4>
                             <p>The CNN identifies the type of image/content such as board, text or background...</p>
                         </div>
                     </div>
-                    <div class="step-node">
+                    <div class="step-node" data-stage-order="3" data-stage-number="4.0">
                         <div class="step-circle">4.0</div>
                         <div class="step-content">
                             <h4>4.0 OCR Text Extraction</h4>
                             <p>OCR reads and extracts text from the classroom image.</p>
                         </div>
                     </div>
-                    <div class="step-node">
+                    <div class="step-node" data-stage-order="4" data-stage-number="5.0">
                         <div class="step-circle">5.0</div>
                         <div class="step-content">
                             <h4>5.0 NLP Analysis</h4>
                             <p>The extracted text is analyzed to identify important keywords and topics.</p>
                         </div>
                     </div>
-                    <div class="step-node">
+                    <div class="step-node" data-stage-order="5" data-stage-number="6.0">
                         <div class="step-circle">6.0</div>
                         <div class="step-content">
                             <h4>6.0 Structured Notes Generation</h4>
@@ -1546,8 +1764,10 @@ function initAnalysisDrawer() {
         const copyOcrBtn = document.getElementById('btn-copy-ocr');
         if (copyOcrBtn && text) {
             copyOcrBtn.addEventListener('click', () => {
-                navigator.clipboard.writeText(text).then(() => {
+                copyTextToClipboard(text).then(() => {
                     showToast('Extracted OCR text copied!', 'success');
+                }).catch(() => {
+                    showToast('Failed to copy extracted text.', 'error');
                 });
             });
         }
@@ -1557,7 +1777,7 @@ function initAnalysisDrawer() {
         if (copyNotesBtn) {
             copyNotesBtn.addEventListener('click', () => {
                 const noteContent = notes.markdown || notes.plain_text || text;
-                navigator.clipboard.writeText(noteContent).then(() => {
+                copyTextToClipboard(noteContent).then(() => {
                     showToast('Complete structured notes copied to clipboard!', 'success');
                 }).catch(() => {
                     showToast('Failed to copy notes.', 'error');
@@ -1578,7 +1798,7 @@ function initAnalysisDrawer() {
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                window.setTimeout(() => URL.revokeObjectURL(url), 1000);
                 showToast('Structured notes downloaded (.md)!', 'success');
             });
         }
@@ -1596,7 +1816,7 @@ function initAnalysisDrawer() {
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                window.setTimeout(() => URL.revokeObjectURL(url), 1000);
                 showToast('Structured notes downloaded (.txt)!', 'success');
             });
         }
@@ -1619,7 +1839,7 @@ function initAnalysisDrawer() {
                     ${escapeHtml(errMsg)}
                 </p>
                 <div style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: var(--radius-sm); padding: 12px; font-size: 0.8rem; color: #fecdd3; font-family: var(--font-mono); margin-bottom: 18px;">
-                    Ensure the pipeline models and OpenCV dependencies are loaded in the environment.
+                    The service returned an error. Retry the analysis; if it continues, share the status message with the project maintainer.
                 </div>
                 ${savedName ? `
                 <div>
@@ -1647,6 +1867,37 @@ function initAnalysisDrawer() {
 /* ==========================================================================
    6. UTILITY HELPERS
    ========================================================================== */
+async function copyTextToClipboard(text) {
+    if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return;
+        } catch (error) {
+            // Fall through to the selection-based copy path for browser permission quirks.
+        }
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '0';
+    textarea.style.left = '0';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+
+    let copied = false;
+    try {
+        copied = document.execCommand('copy');
+    } finally {
+        textarea.remove();
+    }
+    if (!copied) throw new Error('Clipboard access is unavailable.');
+}
+
 function formatBytes(bytes, decimals = 1) {
     if (bytes === 0) return '0 B';
     const k = 1024;

@@ -46,14 +46,8 @@ from flask import (
     flash
 )
 
-# Optional CORS support for cross-origin frontend
-try:
-    from flask_cors import CORS
-    HAS_CORS = True
-except ImportError:
-    HAS_CORS = False
-
 import auth
+import analysis_jobs
 from pipeline import (
     PIPELINE_OUTPUT_FOLDER,
     PIPELINE_PROCESSES,
@@ -70,6 +64,112 @@ from pipeline import (
 # Non-inference requests (health, upload, file list) are unaffected.
 import threading
 _inference_semaphore = threading.Semaphore(1)
+
+
+def _get_process_rss_mb():
+    """Return process RSS for diagnostics without letting telemetry fail a request."""
+    try:
+        import psutil
+        return psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024
+    except Exception as exc:
+        logger.warning("[Analyze] Could not read process RSS: %s", exc)
+        return None
+
+
+class InferenceBusyError(RuntimeError):
+    """Raised when a synchronous caller cannot acquire the inference slot."""
+
+
+def _execute_pipeline(image_path, progress_callback=None, semaphore_timeout=120):
+    """Run the one shared pipeline implementation under the inference guard."""
+    if semaphore_timeout is None:
+        acquired = _inference_semaphore.acquire(blocking=True)
+    else:
+        acquired = _inference_semaphore.acquire(
+            blocking=True,
+            timeout=semaphore_timeout,
+        )
+    if not acquired:
+        raise InferenceBusyError
+
+    logger.info("[Analyze] Starting pipeline for: %s", os.path.basename(image_path))
+    rss_before = _get_process_rss_mb()
+    try:
+        return run_pipeline_data(image_path, progress_callback=progress_callback)
+    finally:
+        rss_after = _get_process_rss_mb()
+        if rss_before is not None and rss_after is not None:
+            logger.info(
+                "[Analyze] Finished. RSS before=%.1f MB after=%.1f MB delta=%.1f MB",
+                rss_before,
+                rss_after,
+                rss_after - rss_before,
+            )
+        else:
+            logger.info("[Analyze] Finished. RSS measurement unavailable.")
+        _inference_semaphore.release()
+
+
+def _safe_pipeline_failure_message(failed_step):
+    """Return a user-safe message that identifies the stage that failed."""
+    failed_step = str(failed_step or "")
+    if failed_step.startswith("1.0"):
+        return (
+            "The uploaded image is invalid or exceeds the 8 MP limit. "
+            "Use a valid JPEG or PNG image."
+        )
+    if failed_step.startswith("2.0"):
+        return (
+            "Image preprocessing could not be completed. Verify the JPEG or PNG "
+            "and retry; if it keeps failing, contact the project administrator."
+        )
+    if failed_step.startswith("3.0"):
+        return "Image classification could not be completed. Please retry shortly."
+    if failed_step.startswith("4.0"):
+        return "Text extraction could not be completed. Please retry shortly."
+    if failed_step.startswith("5.0"):
+        return "Text analysis could not be completed. Please retry shortly."
+    if failed_step.startswith("6.0"):
+        return "Structured notes could not be generated. Please retry shortly."
+    return "The AI pipeline could not complete. Please retry shortly."
+
+
+def _client_safe_pipeline_result(result):
+    """Remove server-local paths before returning pipeline data to a browser."""
+    if not isinstance(result, dict):
+        return result
+    safe_result = dict(result)
+    safe_result.pop("processed_image", None)
+    return safe_result
+
+
+def _process_analysis_job(filename, progress_callback):
+    """Worker adapter that reuses the guarded six-stage analysis pipeline."""
+    image_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    if not os.path.isfile(image_path):
+        raise analysis_jobs.AnalysisJobError(
+            "The uploaded image is no longer available. Please upload it again."
+        )
+
+    try:
+        result = _execute_pipeline(
+            image_path,
+            progress_callback=progress_callback,
+            semaphore_timeout=None,
+        )
+    except Exception as exc:
+        from ocr.extractor import OCREngineUnavailable
+        if isinstance(exc, OCREngineUnavailable):
+            raise analysis_jobs.AnalysisJobError(
+                "Text extraction is temporarily unavailable. Please retry shortly."
+            ) from exc
+        raise
+
+    if not result.get("success", False):
+        raise analysis_jobs.AnalysisJobError(
+            _safe_pipeline_failure_message(result.get("failed_step"))
+        )
+    return _client_safe_pipeline_result(result)
 
 # ==============================================================================
 # FLASK APPLICATION CONFIGURATION & SECURITY HARDENING
@@ -112,14 +212,10 @@ app.config.update(
 # Item 2: Explicit Trusted CORS Origins (No wildcard + credential conflicts)
 DEFAULT_TRUSTED_ORIGINS = [
     "https://classroom-tan-iota.vercel.app",
-    "https://classroom-swart-one.vercel.app",
-    "https://classroom-theta-silk.vercel.app",
     "https://classroom-backend-cp6o.onrender.com",
-    "http://localhost:3000",
-    "http://localhost:5000",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5000",
 ]
+CORS_ALLOWED_METHODS = "GET, POST, OPTIONS, HEAD"
+CORS_ALLOWED_HEADERS = "Content-Type, Authorization, Accept"
 
 env_origins = os.environ.get("TRUSTED_ORIGINS", "")
 if env_origins:
@@ -129,62 +225,55 @@ else:
 
 
 def is_origin_allowed(origin: str | None) -> bool:
-    """Validates origin against trusted origins and canonical project domains."""
-    if not origin:
+    """Validate an exact configured origin, with localhost only in development."""
+    if not origin or origin in ("*", "null"):
         return False
     if origin in TRUSTED_ORIGINS:
         return True
-    # Match any classroom-* Vercel preview/production deployment
-    if re.match(r"^https://classroom-[a-zA-Z0-9_-]+\.vercel\.app$", origin):
-        return True
-    # Match local development hosts on any valid port
-    if re.match(r"^http://(localhost|127\.0\.0\.1)(:\d+)?$", origin):
+    # Preview deployments must be added explicitly through TRUSTED_ORIGINS.
+    # Keep local browser development convenient without allowing it in production.
+    if not is_production and re.fullmatch(r"http://(localhost|127\.0\.0\.1)(:\d{1,5})?", origin):
         return True
     return False
 
 
-if HAS_CORS:
-    # Pass the validator function directly so flask-cors uses the same regex logic
-    # as our @after_request handler (fixes preflight rejection for new Vercel URLs)
-    CORS(
-        app,
-        origins=is_origin_allowed,
-        supports_credentials=True,
-        allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
-        methods=["GET", "POST", "OPTIONS", "HEAD", "PUT", "DELETE"]
-    )
+def _vary_on_origin(response):
+    """Append Origin to Vary without discarding headers added by other layers."""
+    values = [value.strip() for value in response.headers.get("Vary", "").split(",") if value.strip()]
+    if not any(value.lower() == "origin" for value in values) and "*" not in values:
+        values.append("Origin")
+    if values:
+        response.headers["Vary"] = ", ".join(values)
+    return response
 
 
 @app.before_request
 def handle_options_preflight():
-    """Handle CORS preflight OPTIONS requests with explicit origin validation."""
+    """Reject unconfigured browser origins and handle allowed preflight requests."""
+    origin = request.headers.get("Origin")
+    if origin and not is_origin_allowed(origin):
+        return jsonify({"success": False, "error": "Origin is not allowed."}), 403
+
     if request.method == "OPTIONS":
         response = app.make_default_options_response()
-        origin = request.headers.get("Origin")
         if origin and is_origin_allowed(origin):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, HEAD, PUT, DELETE"
-            response.headers["Access-Control-Allow-Headers"] = (
-                "Content-Type, Authorization, X-Requested-With, Accept, Origin"
-            )
-            response.headers["Vary"] = "Origin"
-        return response
+            response.headers["Access-Control-Allow-Methods"] = CORS_ALLOWED_METHODS
+            response.headers["Access-Control-Allow-Headers"] = CORS_ALLOWED_HEADERS
+        return _vary_on_origin(response) if origin else response
 
 
 @app.after_request
 def add_cors_headers(response):
-    """Enforce explicit origin matching on all responses (eliminates wildcard credentials)."""
+    """Attach CORS headers only for exact configured origins on every response."""
     origin = request.headers.get("Origin")
     if origin and is_origin_allowed(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, HEAD, PUT, DELETE"
-        response.headers["Access-Control-Allow-Headers"] = (
-            "Content-Type, Authorization, X-Requested-With, Accept, Origin"
-        )
-        response.headers["Vary"] = "Origin"
-    return response
+        response.headers["Access-Control-Allow-Methods"] = CORS_ALLOWED_METHODS
+        response.headers["Access-Control-Allow-Headers"] = CORS_ALLOWED_HEADERS
+    return _vary_on_origin(response) if origin else response
 
 
 # Initialize user database (schema preserved)
@@ -230,12 +319,16 @@ def cleanup_old_files(max_age_hours: int = 24, min_protection_hours: int = 2):
     min_protection_sec = min_protection_hours * 3600
 
     try:
+        active_files = analysis_jobs.job_manager.active_filenames()
+        protected_files = active_files | {f"proc_{name}" for name in active_files}
         for folder in [UPLOAD_FOLDER, PIPELINE_OUTPUT_FOLDER]:
             if not os.path.exists(folder):
                 continue
             for item in os.listdir(folder):
                 item_path = os.path.join(folder, item)
                 if os.path.isfile(item_path):
+                    if item in protected_files:
+                        continue
                     file_age = now - os.path.getmtime(item_path)
                     if file_age > max_age_sec and file_age > min_protection_sec:
                         try:
@@ -304,6 +397,14 @@ def health_check():
         ocr_configured = False
         ocr_initialized = False
 
+    # OpenCV preprocessing is required for every analysis but should not be
+    # imported during a lightweight health probe.
+    try:
+        import importlib.util
+        preprocessing_configured = importlib.util.find_spec("cv2") is not None
+    except (ImportError, ValueError):
+        preprocessing_configured = False
+
     # Current process RSS (for memory monitoring via health probe).
     rss_mb = None
     try:
@@ -319,11 +420,25 @@ def health_check():
         "timestamp": int(time.time()),
         "cnn_model_file": os.path.basename(cnn_model_file),
         "cnn_model_ready": cnn_model_ready,
+        "preprocessing_configured": preprocessing_configured,
         "ocr_engine": "RapidOCR (ONNX Runtime)",
         "ocr_configured": ocr_configured,
         "ocr_initialized": ocr_initialized,
         "ocr_engine_ready": ocr_initialized,  # kept for frontend compatibility
     }
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+        try:
+            payload["ocr_package_version"] = version("rapidocr-onnxruntime")
+        except PackageNotFoundError:
+            payload["ocr_package_version"] = None
+        try:
+            payload["onnxruntime_version"] = version("onnxruntime")
+        except PackageNotFoundError:
+            payload["onnxruntime_version"] = None
+    except Exception:
+        payload["ocr_package_version"] = None
+        payload["onnxruntime_version"] = None
     if rss_mb is not None:
         payload["rss_mb"] = rss_mb
 
@@ -641,6 +756,82 @@ def pipeline_output_file(filename):
 # API: COMPLETE 6-STAGE AI PIPELINE
 # ==============================================================================
 
+@app.route("/api/analyze/jobs", methods=["POST"])
+def create_analysis_job():
+    payload = request.get_json(silent=True)
+    filename = payload.get("filename") if isinstance(payload, dict) else None
+    if not isinstance(filename, str) or not filename.strip():
+        return jsonify({
+            "success": False,
+            "error": "Provide the uploaded image filename in the 'filename' field."
+        }), 400
+
+    safe_name = secure_filename(filename)
+    if safe_name != filename:
+        return jsonify({"success": False, "error": "The image filename is invalid."}), 400
+
+    image_path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
+    if not os.path.isfile(image_path):
+        return jsonify({
+            "success": False,
+            "error": "The uploaded image was not found. It may have expired; upload it again."
+        }), 404
+
+    # Refresh cleanup protection while the bounded queue holds this file.
+    try:
+        os.utime(image_path, None)
+    except OSError:
+        pass
+
+    try:
+        job, duplicate = analysis_jobs.job_manager.submit(safe_name, _process_analysis_job)
+    except analysis_jobs.JobQueueFullError:
+        return jsonify({
+            "success": False,
+            "error": "The analysis queue is full. Please retry shortly."
+        }), 503
+    except RuntimeError:
+        logger.exception("[AnalysisJobs] Could not start the background worker")
+        return jsonify({
+            "success": False,
+            "error": "The analysis service is temporarily unavailable. Please retry shortly."
+        }), 503
+
+    response = {
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "message": (
+            "Analysis is already queued or running"
+            if duplicate
+            else "Analysis job accepted"
+        ),
+    }
+    if duplicate:
+        response["duplicate"] = True
+    accepted_response = jsonify(response)
+    accepted_response.headers["Cache-Control"] = "no-store"
+    return accepted_response, 202
+
+
+@app.route("/api/analyze/jobs/<job_id>", methods=["GET"])
+def get_analysis_job(job_id):
+    job = analysis_jobs.job_manager.get(job_id)
+    if job is None:
+        response = jsonify({
+            "success": False,
+            "error": (
+                "Analysis job was not found. It may have expired or been interrupted "
+                "by a server restart."
+            ),
+            "status": "not_found",
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response, 404
+    response = jsonify(job)
+    response.headers["Cache-Control"] = "no-store"
+    return response, 200
+
+
 @app.route("/api/analyze/<filename>", methods=["GET", "POST"])
 def api_analyze_image(filename):
     safe_name = secure_filename(filename)
@@ -652,88 +843,83 @@ def api_analyze_image(filename):
             "error": f"Image file '{safe_name}' not found on server. It may have expired or not yet uploaded."
         }), 404
 
-    # Serialise inference: TF model.predict() and EasyOCR readtext() are not
-    # thread-safe under concurrent gunicorn threads. The semaphore ensures only
-    # one analysis runs at a time; a second concurrent request waits rather than
-    # doubling the memory spike. acquire(blocking=False) returns False immediately
-    # if inference is already running so we can return a 503 instead of queuing.
-    acquired = _inference_semaphore.acquire(blocking=True, timeout=120)
-    if not acquired:
-        logger.warning("[Analyze] Inference semaphore timeout for %s — server busy", safe_name)
+    try:
+        result = _execute_pipeline(image_path, semaphore_timeout=120)
+
+        if not result.get("success", False):
+            failed_step = result.get("failed_step", "")
+            logger.error("[Analyze] Pipeline returned failure at %s: %s",
+                         failed_step, result.get("error", "unspecified failure"))
+            if failed_step.startswith("1.0"):
+                return jsonify({
+                    "success": False,
+                    "error": _safe_pipeline_failure_message(failed_step)
+                }), 400
+            return jsonify({
+                "success": False,
+                "error": _safe_pipeline_failure_message(failed_step)
+            }), 500
+
+        return jsonify(_client_safe_pipeline_result(result)), 200
+    except InferenceBusyError:
+        logger.warning("[Analyze] Inference semaphore timed out after 120s for %s", safe_name)
         return jsonify({
             "success": False,
+            "error_code": "inference_busy",
             "error": "The server is currently processing another image. Please retry in a moment."
         }), 503
-
-    logger.info("[Analyze] Starting pipeline for: %s", safe_name)
-    try:
-        import psutil
-        rss_before = psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024
-    except ImportError:
-        rss_before = None
-
-    try:
-        result = run_pipeline_data(image_path)
-
-        try:
-            import psutil
-            rss_after = psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024
-            logger.info("[Analyze] Complete. RSS before=%.1f MB after=%.1f MB delta=%.1f MB",
-                        rss_before, rss_after, rss_after - rss_before)
-        except ImportError:
-            pass
-
-        return jsonify(result), 200
     except Exception as exc:
+        from ocr.extractor import OCREngineUnavailable
+        if isinstance(exc, OCREngineUnavailable):
+            app.logger.error("[Analyze] OCR service unavailable for %s", safe_name, exc_info=True)
+            return jsonify({
+                "success": False,
+                "error_code": "ocr_unavailable",
+                "error": "Text extraction is temporarily unavailable. Please retry shortly."
+            }), 503
         import traceback
         app.logger.error(
             "[Analyze] Pipeline FAILED for %s:\n%s", safe_name, traceback.format_exc()
         )
         return jsonify({
             "success": False,
-            "error": "The AI pipeline encountered an error processing the image. Please try another capture.",
-            "detail": str(exc)
+            "error": "The AI pipeline encountered an internal error processing the image. Please retry."
         }), 500
-    finally:
-        _inference_semaphore.release()
-
-
 @app.route("/api/export-notes/<filename>", methods=["GET"])
 def export_notes(filename):
     format_type = request.args.get("format", "md").lower()
     safe_name = secure_filename(filename)
+    if safe_name != filename:
+        return jsonify({"success": False, "error": "The image filename is invalid."}), 400
     image_path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
 
     if not os.path.exists(image_path):
-        return jsonify({"error": "Image file not found"}), 404
+        return jsonify({"success": False, "error": "Image file not found."}), 404
 
-    acquired = _inference_semaphore.acquire(blocking=True, timeout=120)
-    if not acquired:
-        return jsonify({"error": "Server is busy processing another image. Please retry."}), 503
+    # The asynchronous analysis already owns the notes. Exporting them must not
+    # repeat the six-stage inference or occupy the shared model semaphore.
+    result = analysis_jobs.job_manager.completed_result_for_filename(safe_name)
+    notes = result.get("structured_notes") if isinstance(result, dict) else None
+    if not isinstance(notes, dict):
+        return jsonify({
+            "success": False,
+            "error": "Run the analysis and wait for it to complete before exporting notes.",
+        }), 409
 
-    try:
-        result = run_pipeline_data(image_path)
-        notes = result.get("structured_notes", {})
+    if format_type == "txt":
+        content = notes.get("plain_text", "")
+        mimetype = "text/plain"
+        dl_name = f"notes_{safe_name}.txt"
+    else:
+        content = notes.get("markdown", "")
+        mimetype = "text/markdown"
+        dl_name = f"notes_{safe_name}.md"
 
-        if format_type == "txt":
-            content = notes.get("plain_text", "No content extracted.")
-            mimetype = "text/plain"
-            dl_name = f"notes_{safe_name}.txt"
-        else:
-            content = notes.get("markdown", "# No content extracted.")
-            mimetype = "text/markdown"
-            dl_name = f"notes_{safe_name}.md"
-
-        return Response(
-            content,
-            mimetype=mimetype,
-            headers={"Content-Disposition": f"attachment; filename={dl_name}"}
-        )
-    except Exception as exc:
-        app.logger.error(f"Export notes error on {safe_name}: {exc}", exc_info=True)
-        return jsonify({"error": "Unable to export notes."}), 500
-    finally:
-        _inference_semaphore.release()
+    return Response(
+        content,
+        mimetype=mimetype,
+        headers={"Content-Disposition": f"attachment; filename={dl_name}"}
+    )
 
 
 # ==============================================================================
