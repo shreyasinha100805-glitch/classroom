@@ -733,6 +733,7 @@ class PipelineProgressTests(unittest.TestCase):
             keywords_module = types.ModuleType("nlp.keywords")
             keywords_module.extract_keywords = lambda _text, max_keywords=10: ["biology"]
             topics_module = types.ModuleType("nlp.topics")
+            topics_module.TOPIC_CATEGORIES = {}
             topics_module.detect_topics = lambda _text: [{"topic": "Biology", "keywords": ["biology"]}]
             notes_module = types.ModuleType("nlp.notes")
             notes_module.generate_structured_notes = lambda **_kwargs: {
