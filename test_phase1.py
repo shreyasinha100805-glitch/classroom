@@ -64,7 +64,7 @@ class Phase1BackendTestCase(unittest.TestCase):
     # --------------------------------------------------------------------------
     def test_03_cors_trusted_origin_preflight(self):
         """Verify trusted origin receives explicit CORS headers."""
-        trusted = "https://classroom-theta-silk.vercel.app"
+        trusted = "https://classroom-tan-iota.vercel.app"
         res = self.client.options(
             "/api/health",
             headers={
@@ -89,15 +89,15 @@ class Phase1BackendTestCase(unittest.TestCase):
         )
         self.assertIsNone(res.headers.get("Access-Control-Allow-Origin"))
 
-    def test_05_cors_preview_vercel_origin_allowed(self):
-        """Verify canonical preview Vercel branch deployments are allowed."""
+    def test_05_unconfigured_preview_origin_is_rejected(self):
+        """Preview origins require an explicit allow-list entry."""
         preview_origin = "https://classroom-branch-preview.vercel.app"
         res = self.client.get(
             "/api/health",
             headers={"Origin": preview_origin}
         )
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.headers.get("Access-Control-Allow-Origin"), preview_origin)
+        self.assertEqual(res.status_code, 403)
+        self.assertIsNone(res.headers.get("Access-Control-Allow-Origin"))
 
     # --------------------------------------------------------------------------
     # 4. Authentication & Session Handling

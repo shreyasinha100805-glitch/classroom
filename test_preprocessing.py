@@ -1,160 +1,71 @@
-import os
+import tempfile
+import unittest
+from pathlib import Path
+
 import cv2
-from preprocessing.image_processing import preprocess_image
+import numpy as np
+from unittest.mock import patch
 
-
-UPLOAD_FOLDER = "uploads"
-OUTPUT_FOLDER = "preprocessed"
-
-
-os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-
-
-# ============================================
-# DELETE OLD PROCESSED IMAGES
-# ============================================
-
-for file in os.listdir(OUTPUT_FOLDER):
-
-    file_path = os.path.join(
-        OUTPUT_FOLDER,
-        file
-    )
-
-    if os.path.isfile(file_path):
-
-        os.remove(file_path)
-
-
-# ============================================
-# FIND UPLOADED IMAGES
-# ============================================
-
-image_extensions = (
-    ".jpg",
-    ".jpeg",
-    ".png"
+from preprocessing.image_processing import (
+    OCR_VARIANTS,
+    make_ocr_variant,
+    preprocess_image,
+    safe_imread,
 )
 
 
-files = os.listdir(UPLOAD_FOLDER)
+class OCRPreprocessingTests(unittest.TestCase):
+    def setUp(self):
+        # Synthetic green board with thin yellow and white strokes, a table, and
+        # punctuation-like marks. Tests use temporary files only.
+        self.image = np.full((240, 320, 3), (65, 105, 65), dtype=np.uint8)
+        cv2.line(self.image, (30, 70), (275, 70), (40, 220, 235), 1)
+        cv2.line(self.image, (40, 100), (285, 101), (230, 235, 230), 1)
+        cv2.putText(self.image, "ID <= 12", (25, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (235, 235, 235), 1)
 
-image_files = [
-    file
-    for file in files
-    if file.lower().endswith(image_extensions)
-]
+    def test_all_evaluation_variants_are_bounded_and_do_not_mutate_source(self):
+        original = self.image.copy()
+        for variant_name in OCR_VARIANTS:
+            variant = make_ocr_variant(self.image, variant_name)
+            self.assertGreater(variant.size, 0, variant_name)
+            self.assertLessEqual(max(variant.shape[:2]), 1600, variant_name)
+        np.testing.assert_array_equal(self.image, original)
 
+    def test_large_ocr_inputs_are_resized_to_the_1600_pixel_cap(self):
+        image = np.zeros((1700, 2100, 3), dtype=np.uint8)
+        original = image.copy()
 
-print("================================")
-print("CLASSROOM IMAGE PREPROCESSING")
-print("================================")
+        for variant_name in ("original_rgb", "hsv_chalk"):
+            variant = make_ocr_variant(image, variant_name)
+            self.assertLessEqual(max(variant.shape[:2]), 1600, variant_name)
 
-print(
-    "Images found:",
-    len(image_files)
-)
+        np.testing.assert_array_equal(image, original)
 
+    def test_production_preprocessor_still_writes_for_classifier(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source.png"
+            output = Path(temp_dir) / "processed.jpg"
+            self.assertTrue(cv2.imwrite(str(source), self.image))
+            self.assertEqual(preprocess_image(str(source), str(output)), str(output))
+            self.assertTrue(output.is_file())
+            decoded = cv2.imread(str(output))
+            self.assertEqual(decoded.shape[:2], self.image.shape[:2])
 
-# ============================================
-# PROCESS IMAGES
-# ============================================
+    def test_unknown_variant_is_an_explicit_error(self):
+        with self.assertRaisesRegex(ValueError, "Unknown OCR image variant"):
+            make_ocr_variant(self.image, "magic")
 
-for index, filename in enumerate(
-    image_files,
-    start=1
-):
-
-    input_path = os.path.join(
-        UPLOAD_FOLDER,
-        filename
-    )
-
-    try:
-
-        # ------------------------------------
-        # Enhanced version
-        # ------------------------------------
-
-        enhanced_path = os.path.join(
-            OUTPUT_FOLDER,
-            f"processed_{index}_enhanced.jpg"
-        )
-
-        preprocess_image(
-            input_path,
-            enhanced_path
-        )
-
-
-        # ------------------------------------
-        # Grayscale version
-        # ------------------------------------
-
-        image = cv2.imread(input_path)
-
-        if image is None:
-
-            raise ValueError(
-                "Could not read image"
-            )
+    def test_failed_header_probe_rejects_before_opencv_decode(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "malformed.jpg"
+            source.write_bytes(b"not an image")
+            with patch(
+                "preprocessing.image_processing.PilImage.open",
+                side_effect=OSError("invalid image header"),
+            ), patch("preprocessing.image_processing.cv2.imdecode") as decode:
+                self.assertIsNone(safe_imread(str(source)))
+            decode.assert_not_called()
 
 
-        height, width = image.shape[:2]
-
-        max_width = 2000
-
-        if width > max_width:
-
-            scale = max_width / width
-
-            image = cv2.resize(
-                image,
-                (
-                    int(width * scale),
-                    int(height * scale)
-                ),
-                interpolation=cv2.INTER_CUBIC
-            )
-
-
-        gray = cv2.cvtColor(
-            image,
-            cv2.COLOR_BGR2GRAY
-        )
-
-
-        gray_path = os.path.join(
-            OUTPUT_FOLDER,
-            f"processed_{index}_gray.jpg"
-        )
-
-        cv2.imwrite(
-            gray_path,
-            gray
-        )
-
-
-        print(
-            f"[[OK]] {filename}"
-        )
-
-        print(
-            "    -> enhanced"
-        )
-
-        print(
-            "    -> grayscale"
-        )
-
-
-    except Exception as error:
-
-        print(
-            f"[FAIL] {filename}: {error}"
-        )
-
-
-print("================================")
-print("PREPROCESSING COMPLETE")
-print("================================")
+if __name__ == "__main__":
+    unittest.main()

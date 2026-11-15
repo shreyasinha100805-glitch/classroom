@@ -1934,6 +1934,30 @@ body::before {
     box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
 }
 
+.step-node.warning .step-circle {
+    border-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.14);
+    color: #fbbf24;
+}
+
+.ocr-warning-callout {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(245, 158, 11, 0.42);
+    border-radius: var(--radius-md);
+    background: rgba(245, 158, 11, 0.1);
+    color: #fde68a;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.ocr-warning-callout strong {
+    color: #fbbf24;
+}
+
 .step-node.running .step-circle {
     border-color: var(--primary-cyan);
     color: var(--primary-cyan);

@@ -38,7 +38,7 @@ PIPELINE_PROCESSES = [
     {
         "step": "4.0",
         "title": "OCR Text Extraction",
-        "description": "OCR reads and extracts text from the classroom image.",
+        "description": "OCR checks the original image and at most one gentle color-enhanced variant.",
         "icon": "type"
     },
     {
@@ -185,10 +185,9 @@ def run_pipeline(image_path: str):
     # 4.0 OCR Text Extraction
     # -------------------------------------------------------------------------
     print("4.0 OCR Text Extraction")
-    print("OCR reads and extracts text from the classroom image.")
+    print("OCR reads the original image before using any optional color enhancement.")
     print("------------------------------------------------------------------")
-    ocr_results = extract_text(processed_path)
-    extracted_text = []
+    ocr_results = extract_text(image_path)
 
     if not ocr_results:
         print("Notice: No readable text detected with sufficient confidence.")
@@ -197,10 +196,14 @@ def run_pipeline(image_path: str):
             text = item["text"]
             score = item["confidence"]
             print(f"  - {text} (conf: {score:.2f})")
-            if score >= 0.40:
-                extracted_text.append(text)
-
-    combined_text = " ".join(extracted_text)
+    from nlp.quality import assess_ocr_quality, low_confidence_notes
+    ocr_quality = assess_ocr_quality(ocr_results or [])
+    if ocr_quality["warning"]:
+        print(f"Warning: {ocr_quality['warning']}")
+    combined_text = " ".join(
+        item["text"] for item in (ocr_results or []) if item["confidence"] >= 0.40
+    )
+    analysis_text = ocr_quality["analysis_text"] if ocr_quality["reliable"] else ""
     print()
 
     # -------------------------------------------------------------------------
@@ -209,8 +212,8 @@ def run_pipeline(image_path: str):
     print("5.0 NLP Analysis")
     print("The extracted text is analyzed to identify important keywords and topics.")
     print("------------------------------------------------------------------")
-    keywords = extract_keywords(combined_text, max_keywords=10) if combined_text else []
-    topics = detect_topics(combined_text) if combined_text else []
+    keywords = extract_keywords(analysis_text, max_keywords=10) if analysis_text else []
+    topics = detect_topics(analysis_text) if analysis_text else []
 
     print("Keywords:")
     if keywords:
@@ -233,12 +236,16 @@ def run_pipeline(image_path: str):
     print("6.0 Structured Notes Generation")
     print("The system combines the extracted information and generates organized notes for the user.")
     print("------------------------------------------------------------------")
-    notes = generate_structured_notes(
-        classification={"class": predicted_class, "confidence": round(confidence * 100, 2)},
-        extracted_text=combined_text,
-        keywords=keywords,
-        topics=topics,
-        ocr_items=ocr_results
+    notes = (
+        generate_structured_notes(
+            classification={"class": predicted_class, "confidence": round(confidence * 100, 2)},
+            extracted_text=analysis_text,
+            keywords=keywords,
+            topics=topics,
+            ocr_items=ocr_quality["analysis_items"],
+        )
+        if ocr_quality["reliable"]
+        else low_confidence_notes(ocr_quality["warning"])
     )
 
     print()
@@ -322,7 +329,7 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
         stages_log.append({
             "step": "2.0",
             "title": "Image Preprocessing",
-            "description": "The image is resized, denoised, enhanced and sharpened.",
+            "description": "A bounded image copy is prepared for classification; OCR also evaluates the original image.",
             "status": "completed",
             "details": f"Saved enhanced image to {os.path.basename(processed_path)}"
         })
@@ -378,9 +385,11 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
     logger.info("[Pipeline 4.0] Running OCR extraction")
     _log_memory("before-ocr")
     try:
+        import time
         from ocr.extractor import OCREngineUnavailable, extract_text
-        ocr_results = extract_text(processed_path)
-        extracted_text = []
+        from nlp.quality import assess_ocr_quality
+        ocr_started = time.perf_counter()
+        ocr_results = extract_text(image_path)
         ocr_clean = []
         if ocr_results:
             for item in ocr_results:
@@ -398,17 +407,80 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
                 if isinstance(bbox, (list, tuple)):
                     clean_item["bbox"] = bbox
                 ocr_clean.append(clean_item)
-                if conf >= 0.40:
-                    extracted_text.append(str(txt))
-        combined_text = " ".join(extracted_text)
-        logger.info("[Pipeline 4.0] OK — %d segments, %d chars",
-                    len(ocr_clean), len(combined_text))
+
+        # OCR reads the original upload instead of the legacy CNN preprocessing
+        # output, which applied denoising, threshold-like contrast and sharpening.
+        ocr_variant = "original_rgb"
+        ocr_quality = assess_ocr_quality(ocr_clean)
+        if not ocr_quality["reliable"]:
+            # One color-aware fallback is the production limit. No thresholded
+            # variants are run on every request; the evaluator compares those
+            # offline where latency and memory are measured explicitly.
+            try:
+                from preprocessing.image_processing import make_ocr_variant, safe_imread
+                from ocr.extractor import extract_text_from_image
+                source_image = safe_imread(image_path)
+                if source_image is not None:
+                    source_h, source_w = source_image.shape[:2]
+                    color_variant = make_ocr_variant(source_image, "hsv_chalk")
+                    variant_h, variant_w = color_variant.shape[:2]
+                    fallback_items = extract_text_from_image(color_variant, label="HSV chalk enhancement")
+                    if variant_w != source_w or variant_h != source_h:
+                        scale_x, scale_y = source_w / variant_w, source_h / variant_h
+                        for fallback_item in fallback_items:
+                            fallback_item["bbox"] = [
+                                [round(point[0] * scale_x, 3), round(point[1] * scale_y, 3)]
+                                for point in fallback_item["bbox"]
+                            ]
+                    fallback_quality = assess_ocr_quality(fallback_items)
+                    current_key = (
+                        ocr_quality["meaningful_term_count"],
+                        ocr_quality["average_confidence"],
+                        ocr_quality["supported_token_count"],
+                        ocr_quality["analysis_region_count"],
+                    )
+                    fallback_key = (
+                        fallback_quality["meaningful_term_count"],
+                        fallback_quality["average_confidence"],
+                        fallback_quality["supported_token_count"],
+                        fallback_quality["analysis_region_count"],
+                    )
+                    if fallback_key > current_key:
+                        ocr_clean = fallback_items
+                        ocr_quality = fallback_quality
+                        ocr_variant = "hsv_chalk"
+                    del color_variant, source_image
+            except Exception:
+                logger.warning("[Pipeline 4.0] Optional chalk enhancement failed; keeping original OCR output", exc_info=True)
+
+        # Maintain the original API's raw combined recognized text. NLP and
+        # note generation use the separate, conservative analysis transcript.
+        combined_text = " ".join(
+            item["text"] for item in ocr_clean if item["confidence"] >= 0.40
+        )
+        analysis_note_items = ocr_quality.pop("analysis_items", [])
+        ocr_quality.update({
+            "variant": ocr_variant,
+            "latency_seconds": round(time.perf_counter() - ocr_started, 3),
+        })
+        logger.info(
+            "[Pipeline 4.0] %s — %d raw regions, %d supported tokens, warning=%s",
+            ocr_variant, len(ocr_clean), ocr_quality["supported_token_count"],
+            not ocr_quality["reliable"],
+        )
+        stage_status = "completed" if ocr_quality["reliable"] else "warning"
+        stage_details = (
+            f"Kept {len(ocr_clean)} raw regions; {ocr_quality['analysis_region_count']} regions "
+            f"supported the analysis transcript."
+        )
+        if ocr_quality["warning"]:
+            stage_details = ocr_quality["warning"]
         stages_log.append({
             "step": "4.0",
             "title": "OCR Text Extraction",
-            "description": "OCR reads and extracts text from the classroom image.",
-            "status": "completed",
-            "details": f"Extracted {len(ocr_clean)} text segments ({len(combined_text)} characters)"
+            "description": "OCR checks the original image and at most one gentle color-enhanced variant.",
+            "status": stage_status,
+            "details": stage_details,
         })
     except OCREngineUnavailable:
         logger.error("[Pipeline 4.0] OCR service unavailable", exc_info=True)
@@ -433,16 +505,21 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
     try:
         from nlp.keywords import extract_keywords
         from nlp.topics import detect_topics
-        keywords = extract_keywords(combined_text, max_keywords=10) if combined_text else []
-        topics = detect_topics(combined_text) if combined_text else []
+        analysis_text = ocr_quality["analysis_text"] if ocr_quality["reliable"] else ""
+        keywords = extract_keywords(analysis_text, max_keywords=10) if analysis_text else []
+        topics = detect_topics(analysis_text) if analysis_text else []
         logger.info("[Pipeline 5.0] OK — %d keywords, %d topics",
                     len(keywords), len(topics))
         stages_log.append({
             "step": "5.0",
             "title": "NLP Analysis",
             "description": "The extracted text is analyzed to identify important keywords and topics.",
-            "status": "completed",
-            "details": f"Identified {len(keywords)} keywords and {len(topics)} academic topics"
+            "status": "completed" if ocr_quality["reliable"] else "warning",
+            "details": (
+                f"Identified {len(keywords)} keywords and {len(topics)} academic topics"
+                if ocr_quality["reliable"]
+                else "Skipped unreliable OCR text; retake the image for analysis."
+            )
         })
     except Exception as exc:
         logger.error("[Pipeline 5.0] FAILED:\n%s", traceback.format_exc())
@@ -465,31 +542,43 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
     _log_memory("before-notes")
     try:
         from nlp.notes import generate_structured_notes
-        structured_notes = generate_structured_notes(
-            classification={"class": predicted_class, "confidence": round(confidence * 100, 2)},
-            extracted_text=combined_text,
-            keywords=keywords,
-            topics=topics,
-            ocr_items=ocr_clean
-        )
+        if ocr_quality["reliable"]:
+            structured_notes = generate_structured_notes(
+                classification={"class": predicted_class, "confidence": round(confidence * 100, 2)},
+                extracted_text=ocr_quality["analysis_text"],
+                keywords=keywords,
+                topics=topics,
+                ocr_items=analysis_note_items,
+            )
+        else:
+            from nlp.quality import low_confidence_notes
+            structured_notes = low_confidence_notes(ocr_quality["warning"])
         logger.info("[Pipeline 6.0] OK — '%s'", structured_notes.get("title", ""))
         stages_log.append({
             "step": "6.0",
             "title": "Structured Notes Generation",
             "description": "The system combines the extracted information and generates organized notes for the user.",
-            "status": "completed",
-            "details": f"Generated organized notes: '{structured_notes['title']}'"
+            "status": "completed" if ocr_quality["reliable"] else "warning",
+            "details": (
+                f"Generated organized notes: '{structured_notes['title']}'"
+                if ocr_quality["reliable"]
+                else "Notes were withheld because the OCR transcript is unreliable."
+            ),
         })
     except Exception as exc:
         logger.error("[Pipeline 6.0] FAILED:\n%s", traceback.format_exc())
-        structured_notes = {
-            "title": "Classroom Board Notes",
-            "markdown": combined_text,
-            "plain_text": combined_text,
-            "key_points": [combined_text] if combined_text else [],
-            "topics": topics,
-            "keywords": keywords
-        }
+        if ocr_quality["reliable"]:
+            structured_notes = {
+                "title": "Classroom Board Notes",
+                "markdown": ocr_quality["analysis_text"],
+                "plain_text": ocr_quality["analysis_text"],
+                "key_points": [ocr_quality["analysis_text"]] if ocr_quality["analysis_text"] else [],
+                "topics": topics,
+                "keywords": keywords,
+            }
+        else:
+            from nlp.quality import low_confidence_notes
+            structured_notes = low_confidence_notes(ocr_quality["warning"])
         stages_log.append({
             "step": "6.0",
             "title": "Structured Notes Generation",
@@ -513,6 +602,9 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
         },
         "extracted_text": combined_text,
         "ocr_items": ocr_clean,
+        "analysis_text": ocr_quality["analysis_text"] if ocr_quality["reliable"] else "",
+        "ocr_quality": ocr_quality,
+        "ocr_warning": ocr_quality["warning"],
         "keywords": keywords,
         "topics": topics,
         "structured_notes": structured_notes
