@@ -1273,6 +1273,15 @@ function initAnalysisDrawer() {
 
     function updateDrawerProgress(status, currentStage) {
         const statusEl = document.getElementById('analysis-stage-status');
+        if (status === 'legacy') {
+            if (statusEl) statusEl.textContent = 'Analyzing image; this may take a little longer…';
+            drawerContent.querySelectorAll('.step-node[data-stage-order]').forEach((node) => {
+                node.classList.remove('completed', 'running');
+                const circle = node.querySelector('.step-circle');
+                if (circle) circle.textContent = node.dataset.stageNumber;
+            });
+            return;
+        }
         if (status === 'reconnecting') {
             if (statusEl) statusEl.textContent = 'Reconnecting to the analysis service…';
             return;
@@ -1328,11 +1337,34 @@ function initAnalysisDrawer() {
                 let jobId = savedJobId;
                 let initialStatus = savedJobId ? null : 'queued';
                 if (!jobId) {
-                    const accepted = await requestAnalysisJson('/api/analyze/jobs', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        body: JSON.stringify({ filename: savedName })
-                    }, 110000);
+                    let accepted;
+                    try {
+                        accepted = await requestAnalysisJson('/api/analyze/jobs', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify({ filename: savedName })
+                        }, 110000);
+                    } catch (err) {
+                        // Older backend deployments route this path as the image
+                        // endpoint for a file literally named "jobs". Use their
+                        // synchronous endpoint while that backend is being updated.
+                        if (!err.asyncUnsupported) throw err;
+                        if (runId !== activeAnalysisRun) return;
+
+                        updateDrawerProgress('legacy');
+                        const legacyResult = await requestAnalysisJson(
+                            `/api/analyze/${encodeURIComponent(savedName)}`,
+                            { headers: { 'Accept': 'application/json' } },
+                            180000
+                        );
+                        if (runId !== activeAnalysisRun) return;
+                        if (!legacyResult || !legacyResult.success || !legacyResult.classification) {
+                            throw new Error('The analysis service returned an invalid result. Please retry.');
+                        }
+                        renderDrawerResults(legacyResult, originalName);
+                        showToast('AI pipeline analysis completed!', 'success');
+                        return;
+                    }
                     if (runId !== activeAnalysisRun) return;
                     if (!accepted || !accepted.job_id) {
                         throw new Error('The analysis service did not return a job ID. Please retry.');
