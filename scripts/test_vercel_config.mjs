@@ -16,19 +16,40 @@ async function loadConfig(environment, previewBackend) {
   return (await import(configUrl.href)).config;
 }
 
+function verifyRewriteEntries(rewrites) {
+  assert.ok(Array.isArray(rewrites), 'rewrites must be an array');
+
+  for (const [index, rewrite] of rewrites.entries()) {
+    assert.ok(
+      rewrite && typeof rewrite === 'object' && !Array.isArray(rewrite),
+      `rewrites[${index}] must be an object`,
+    );
+    assert.equal(typeof rewrite.source, 'string', `rewrites[${index}] must have a string source`);
+    assert.ok(rewrite.source.trim(), `rewrites[${index}] must have a non-empty source`);
+    assert.equal(
+      typeof rewrite.destination,
+      'string',
+      `rewrites[${index}] must have a string destination`,
+    );
+    assert.ok(rewrite.destination.trim(), `rewrites[${index}] must have a non-empty destination`);
+  }
+}
+
 function verifyConfig(config, backend, isPreview) {
+  assert.ok(config && typeof config === 'object' && !Array.isArray(config));
   assert.equal(config.framework, null);
   assert.equal(config.buildCommand, 'node build.js');
   assert.equal(config.outputDirectory, 'public');
   assert.equal(config.cleanUrls, true);
   assert.equal(config.trailingSlash, false);
+  verifyRewriteEntries(config.rewrites);
   assert.equal(config.rewrites.length, 7);
 
   const expectedDestinations = new Map([
-    ['/api/(.*)', `${backend}/api/$1`],
+    ['/api/:path*', `${backend}/api/:path*`],
     ['/upload', `${backend}/upload`],
-    ['/uploads/(.*)', `${backend}/uploads/$1`],
-    ['/pipeline_output/(.*)', `${backend}/pipeline_output/$1`],
+    ['/uploads/:path*', `${backend}/uploads/:path*`],
+    ['/pipeline_output/:path*', `${backend}/pipeline_output/:path*`],
     ['/results', '/result.html'],
     ['/login', '/login.html'],
     ['/signup', '/signup.html'],
@@ -51,6 +72,19 @@ function verifyConfig(config, backend, isPreview) {
     false,
     'Vercel must not add a wildcard CORS origin to credentialed backend responses',
   );
+}
+
+for (const invalidRewrites of [
+  undefined,
+  {},
+  [undefined],
+  [null],
+  [{ source: '/api/:path*' }],
+  [{ destination: 'https://backend.example.com/api/:path*' }],
+  [{ source: '', destination: 'https://backend.example.com/api/:path*' }],
+  [{ source: '/api/:path*', destination: '' }],
+]) {
+  assert.throws(() => verifyRewriteEntries(invalidRewrites));
 }
 
 const production = await loadConfig('production', 'not-a-production-setting');
@@ -95,6 +129,14 @@ await assert.rejects(
 await assert.rejects(
   () => loadConfig('preview', 'https://preview-test.onrender.com/#preview'),
   /must be a plain HTTPS Render service origin/,
+);
+await assert.rejects(
+  () => loadConfig('preview', 'https://preview-test.example.com'),
+  /must be a plain HTTPS Render service origin/,
+);
+await assert.rejects(
+  () => loadConfig('preview', productionBackend),
+  /must use its separate Render preview backend/,
 );
 
 console.log('Vercel production, preview, development, missing-variable, and invalid-origin configurations validated.');

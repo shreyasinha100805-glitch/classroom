@@ -43,20 +43,30 @@ function getBackendOrigin() {
 
 const backend = getBackendOrigin();
 
+function createRewrite(source, destination) {
+  if (typeof source !== 'string' || source.trim() === '') {
+    throw new Error('Every Vercel rewrite must have a non-empty source.');
+  }
+  if (typeof destination !== 'string' || destination.trim() === '') {
+    throw new Error(`Vercel rewrite for ${source} must have a non-empty destination.`);
+  }
+
+  return { source, destination };
+}
+
 export const config = {
-  $schema: 'https://openapi.vercel.sh/vercel.json',
   framework: null,
   buildCommand: 'node build.js',
   outputDirectory: 'public',
   cleanUrls: true,
   trailingSlash: false,
   rewrites: [
-    { source: '/api/(.*)', destination: `${backend}/api/$1` },
-    { source: '/upload', destination: `${backend}/upload` },
-    { source: '/uploads/(.*)', destination: `${backend}/uploads/$1` },
-    { source: '/pipeline_output/(.*)', destination: `${backend}/pipeline_output/$1` },
-    { source: '/results', destination: '/result.html' },
-    { source: '/login', destination: '/login.html' },
-    { source: '/signup', destination: '/signup.html' },
+    createRewrite('/api/:path*', `${backend}/api/:path*`),
+    createRewrite('/upload', `${backend}/upload`),
+    createRewrite('/uploads/:path*', `${backend}/uploads/:path*`),
+    createRewrite('/pipeline_output/:path*', `${backend}/pipeline_output/:path*`),
+    createRewrite('/results', '/result.html'),
+    createRewrite('/login', '/login.html'),
+    createRewrite('/signup', '/signup.html'),
   ],
 };
