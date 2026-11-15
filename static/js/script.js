@@ -3,6 +3,11 @@
  * Universal Multi-Device Frontend Client
  */
 
+function isSameOriginBackendHost() {
+    const host = window.location.hostname || '';
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.local');
+}
+
 function getApiBaseUrl() {
     if (window.VITE_API_URL) return window.VITE_API_URL.replace(/\/+$/, '');
     if (window.API_BASE_URL) return window.API_BASE_URL.replace(/\/+$/, '');
@@ -12,6 +17,7 @@ function getApiBaseUrl() {
     }
     const stored = localStorage.getItem('boardai_api_url');
     if (stored) return stored.replace(/\/+$/, '');
+    if (isSameOriginBackendHost()) return window.location.origin.replace(/\/+$/, '');
     return '';
 }
 
@@ -65,13 +71,28 @@ function initAuthState() {
             e.preventDefault();
             localStorage.removeItem('boardai_user');
             try {
-                await fetch(`${getApiBaseUrl()}/api/auth/logout`, { method: 'POST' });
+                await fetch('/api/auth/logout', { method: 'POST' });
             } catch (err) {}
             showToast('You have been logged out.', 'info');
             initAuthState();
             setTimeout(() => { window.location.href = '/'; }, 600);
         });
     }
+}
+
+// Wake up Render backend before an API call (free tier cold-start)
+async function wakeUpBackend(statusEl) {
+    const maxAttempts = 10;
+    const retryDelayMs = 3000;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            if (statusEl) statusEl.textContent = `Server is waking up… (${attempt}/${maxAttempts}). This takes ~30 s on first use.`;
+            const res = await fetch('/api/health', { method: 'GET', headers: { 'Accept': 'application/json' } });
+            if (res.ok) return true;
+        } catch (_) { /* still waking */ }
+        if (attempt < maxAttempts) await new Promise(r => setTimeout(r, retryDelayMs));
+    }
+    return false;
 }
 
 function initAuthForms() {
@@ -90,71 +111,98 @@ function initAuthForms() {
         }
     }
 
+    function hideError() {
+        if (alertBox) alertBox.style.display = 'none';
+    }
+
+    function humaniseNetworkError(err) {
+        if (!err) return 'An unknown error occurred.';
+        const msg = err.message || '';
+        if (msg === 'Failed to fetch' || msg.includes('NetworkError') || msg.includes('ERR_')) {
+            return 'Cannot reach the server. It may be starting up — please wait 30 seconds and try again.';
+        }
+        return msg;
+    }
+
     if (loginForm) {
         loginForm.addEventListener('submit', async (e) => {
-            const baseUrl = getApiBaseUrl();
-            if (baseUrl || window.location.hostname.includes('vercel.app')) {
-                e.preventDefault();
-                const identifier = document.getElementById('login_identifier').value.trim();
-                const password = document.getElementById('password').value;
-                const submitBtn = document.getElementById('login-submit-btn');
-                if (submitBtn) submitBtn.disabled = true;
+            // Always intercept — use Vercel proxy (/api/auth/login) rather than a direct Render URL
+            e.preventDefault();
+            hideError();
 
-                try {
-                    const res = await fetch(`${baseUrl}/api/auth/login`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        body: JSON.stringify({ login_identifier: identifier, password: password })
-                    });
-                    const data = await res.json();
-                    if (!res.ok || !data.success) {
-                        throw new Error(data.error || 'Invalid username/email or password.');
-                    }
-                    localStorage.setItem('boardai_user', JSON.stringify(data.user));
-                    showToast(`Welcome back, ${data.user.username}!`, 'success');
-                    setTimeout(() => { window.location.href = '/'; }, 800);
-                } catch (err) {
-                    showError(err.message);
-                    if (submitBtn) submitBtn.disabled = false;
-                }
+            const identifier = (document.getElementById('login_identifier') || {}).value || '';
+            const password = (document.getElementById('password') || {}).value || '';
+            const submitBtn = document.getElementById('login-submit-btn');
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Signing in…'; }
+
+            try {
+                // Wake backend first (handles Render cold-start transparently)
+                const statusEl = alertText || null;
+                if (alertBox && statusEl) { alertBox.className = 'auth-alert-box alert-info'; alertBox.style.display = 'flex'; }
+                const awake = await wakeUpBackend(statusEl);
+                if (!awake) { showError('Server is taking too long to respond. Please try again in a moment.'); return; }
+                hideError();
+
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ login_identifier: identifier.trim(), password })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.success) throw new Error(data.error || 'Invalid username/email or password.');
+                localStorage.setItem('boardai_user', JSON.stringify(data.user));
+                showToast(`Welcome back, ${data.user.username}!`, 'success');
+                setTimeout(() => { window.location.href = '/'; }, 800);
+            } catch (err) {
+                showError(humaniseNetworkError(err));
+            } finally {
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Log In'; }
             }
         });
     }
 
     if (signupForm) {
         signupForm.addEventListener('submit', async (e) => {
-            const baseUrl = getApiBaseUrl();
-            if (baseUrl || window.location.hostname.includes('vercel.app')) {
-                e.preventDefault();
-                const username = document.getElementById('username').value.trim();
-                const email = document.getElementById('email').value.trim();
-                const password = document.getElementById('password').value;
-                const confirmPassword = document.getElementById('confirm_password').value;
-                const submitBtn = document.getElementById('signup-submit-btn');
+            // Always intercept — use Vercel proxy (/api/auth/signup) rather than a direct Render URL
+            e.preventDefault();
+            hideError();
 
-                if (password !== confirmPassword) {
-                    showError('Passwords do not match.');
-                    return;
-                }
+            const username = (document.getElementById('username') || {}).value || '';
+            const email = (document.getElementById('email') || {}).value || '';
+            const password = (document.getElementById('password') || {}).value || '';
+            const confirmPassword = (document.getElementById('confirm_password') || {}).value || '';
+            const submitBtn = document.getElementById('signup-submit-btn');
 
-                if (submitBtn) submitBtn.disabled = true;
+            if (password !== confirmPassword) { showError('Passwords do not match.'); return; }
+            if (username.trim().length < 3) { showError('Username must be at least 3 characters.'); return; }
 
-                try {
-                    const res = await fetch(`${baseUrl}/api/auth/signup`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        body: JSON.stringify({ username, email, password, confirm_password: confirmPassword })
-                    });
-                    const data = await res.json();
-                    if (!res.ok || !data.success) {
-                        throw new Error(data.error || 'Registration failed.');
-                    }
-                    localStorage.setItem('boardai_user', JSON.stringify(data.user));
-                    showToast(`Welcome to BoardAI, ${data.user.username}!`, 'success');
-                    setTimeout(() => { window.location.href = '/'; }, 800);
-                } catch (err) {
-                    showError(err.message);
-                    if (submitBtn) submitBtn.disabled = false;
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.querySelector('span') && (submitBtn.querySelector('span').textContent = 'Creating account…'); }
+
+            try {
+                // Wake backend first (handles Render cold-start transparently)
+                const statusEl = alertText || null;
+                if (alertBox && statusEl) { alertBox.className = 'auth-alert-box alert-info'; alertBox.style.display = 'flex'; }
+                const awake = await wakeUpBackend(statusEl);
+                if (!awake) { showError('Server is taking too long to respond. Please try again in a moment.'); return; }
+                hideError();
+
+                const res = await fetch('/api/auth/signup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ username: username.trim(), email: email.trim(), password, confirm_password: confirmPassword })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.success) throw new Error(data.error || 'Registration failed.');
+                localStorage.setItem('boardai_user', JSON.stringify(data.user));
+                showToast(`Welcome to BoardAI, ${data.user.username}!`, 'success');
+                setTimeout(() => { window.location.href = '/'; }, 800);
+            } catch (err) {
+                showError(humaniseNetworkError(err));
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    const sp = submitBtn.querySelector('span');
+                    if (sp) sp.textContent = 'Create Account';
                 }
             }
         });
@@ -208,6 +256,14 @@ function initThemeSwitcher() {
 function initConstellationBackground() {
     const canvas = document.getElementById('particle-canvas');
     if (!canvas) return;
+
+    const compactViewport = window.matchMedia && window.matchMedia('(max-width: 1024px)').matches;
+    const touchInput = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (compactViewport || touchInput || reducedMotion) {
+        canvas.setAttribute('aria-hidden', 'true');
+        return;
+    }
 
     const ctx = canvas.getContext('2d');
     let width = (canvas.width = window.innerWidth);
@@ -564,7 +620,10 @@ function initUploadDropzone() {
 
     function renderStaging() {
         const files = Array.from(stagedDataTransfer.files);
-        previewGrid.innerHTML = '';
+        previewGrid.querySelectorAll('[data-preview-object-url]').forEach((img) => {
+            URL.revokeObjectURL(img.dataset.previewObjectUrl);
+        });
+        previewGrid.replaceChildren();
 
         if (files.length === 0) {
             stagingArea.classList.remove('has-files');
@@ -586,8 +645,12 @@ function initUploadDropzone() {
 
             const img = document.createElement('img');
             img.className = 'preview-thumb-img';
-            img.src = URL.createObjectURL(file);
+            const previewUrl = URL.createObjectURL(file);
+            img.src = previewUrl;
+            img.dataset.previewObjectUrl = previewUrl;
             img.alt = file.name;
+            img.loading = 'lazy';
+            img.decoding = 'async';
 
             const removeBtn = document.createElement('button');
             removeBtn.type = 'button';
@@ -646,50 +709,94 @@ function initUploadDropzone() {
         showToast('Image removed from staging.', 'info');
     }
 
-    // Submit animation and loading screen (with AJAX upload fallback for decoupled Vercel -> Render)
+    // Wake up Render backend (free tier cold-start) before uploading
+    async function wakeUpBackend(statusEl, tagEl, barFill) {
+        const healthUrl = '/api/health';
+        const maxAttempts = 10;
+        const retryDelayMs = 3000;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                if (tagEl) tagEl.textContent = 'WAKE UP';
+                if (statusEl) statusEl.textContent = `Server is waking up... (attempt ${attempt}/${maxAttempts}). This takes ~30s on first load.`;
+                if (barFill) barFill.style.width = `${Math.min(attempt * 8, 40)}%`;
+
+                const res = await fetch(healthUrl, { method: 'GET', headers: { 'Accept': 'application/json' } });
+                if (res.ok) {
+                    if (statusEl) statusEl.textContent = 'Server is online! Starting upload...';
+                    if (barFill) barFill.style.width = '45%';
+                    return true;
+                }
+            } catch (e) {
+                // Server still waking up — wait and retry
+            }
+            if (attempt < maxAttempts) {
+                await new Promise(r => setTimeout(r, retryDelayMs));
+            }
+        }
+        return false; // timed out
+    }
+
+    // Submit handler — always intercept; use Vercel proxy /api/upload → Render backend
     if (uploadForm) {
         uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
             if (!fileInput.files || fileInput.files.length === 0) {
-                e.preventDefault();
                 showToast('Please select at least one board image.', 'error');
                 return;
             }
 
-            const baseUrl = getApiBaseUrl();
-            if (baseUrl || window.location.hostname.includes('vercel.app')) {
-                e.preventDefault();
-                showUploadLoadingOverlay();
-                const formData = new FormData();
-                Array.from(fileInput.files).forEach((f) => formData.append('images', f));
+            showUploadLoadingOverlay();
 
-                try {
-                    const uploadEndpoint = baseUrl ? `${baseUrl}/api/upload` : '/api/upload';
-                    const res = await fetch(uploadEndpoint, {
-                        method: 'POST',
-                        body: formData,
-                        headers: { 'Accept': 'application/json' }
-                    });
-                    if (!res.ok) {
-                        const errData = await res.json().catch(() => ({}));
-                        throw new Error(errData.error || `Upload failed with HTTP status ${res.status}`);
-                    }
-                    const data = await res.json();
-                    if (data.success && data.files) {
-                        sessionStorage.setItem('boardai_latest_uploads', JSON.stringify(data.files));
-                        showToast(`Successfully uploaded ${data.files.length} images!`, 'success');
-                        window.location.href = '/result.html';
-                    } else {
-                        throw new Error(data.error || 'Upload could not be processed.');
-                    }
-                } catch (err) {
-                    const overlay = document.getElementById('processing-overlay');
-                    if (overlay) overlay.classList.remove('active');
-                    showToast(`Upload failed: ${err.message}`, 'error', 6000);
-                }
+            const overlay = document.getElementById('processing-overlay');
+            const statusEl = document.getElementById('processing-status');
+            const tagEl = document.getElementById('modal-step-tag');
+            const barFill = document.getElementById('progress-bar-fill');
+
+            // Wake up Render backend before uploading
+            const isAwake = await wakeUpBackend(statusEl, tagEl, barFill);
+            if (!isAwake) {
+                if (overlay) overlay.classList.remove('active');
+                showToast('Server is taking too long to wake up. Please wait 30 seconds and try again.', 'error', 8000);
                 return;
             }
 
-            showUploadLoadingOverlay();
+            // Build FormData — do NOT set Content-Type; browser sets multipart boundary automatically
+            const formData = new FormData();
+            Array.from(fileInput.files).forEach((f) => formData.append('images', f));
+
+            try {
+                if (tagEl) tagEl.textContent = 'STAGE 1.0';
+                if (statusEl) statusEl.textContent = '1.0 Image Upload & Validation: Uploading and validating classroom-board image...';
+                if (barFill) barFill.style.width = '55%';
+
+                // /api/upload is proxied by vercel.json → https://classroom-backend-cp6o.onrender.com/api/upload
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'Accept': 'application/json' }
+                    // Content-Type intentionally omitted — browser sets multipart/form-data boundary
+                });
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.error || `Upload failed with HTTP status ${res.status}`);
+                }
+                const data = await res.json();
+                if (data.success && data.files) {
+                    sessionStorage.setItem('boardai_latest_uploads', JSON.stringify(data.files));
+                    showToast(`Successfully uploaded ${data.files.length} images!`, 'success');
+                    window.location.href = '/result.html';
+                } else {
+                    throw new Error(data.error || 'Upload could not be processed.');
+                }
+            } catch (err) {
+                if (overlay) overlay.classList.remove('active');
+                const msg = err && err.message === 'Failed to fetch'
+                    ? 'Server went offline. Please wait 30 seconds and try again.'
+                    : `Upload failed: ${err.message}`;
+                showToast(msg, 'error', 8000);
+            }
         });
     }
 
@@ -752,10 +859,10 @@ async function loadDecoupledGallery(galleryGrid) {
         if (stored) files = JSON.parse(stored);
     } catch (e) {}
 
-    const baseUrl = getApiBaseUrl();
     if (!files || files.length === 0) {
         try {
-            const res = await fetch(`${baseUrl}/api/files`, { headers: { 'Accept': 'application/json' } });
+            // /api/files is proxied by vercel.json → Render backend
+            const res = await fetch('/api/files', { headers: { 'Accept': 'application/json' } });
             if (res.ok) {
                 const data = await res.json();
                 if (data.success && data.files) files = data.files;
@@ -791,7 +898,8 @@ async function loadDecoupledGallery(galleryGrid) {
         card.style.animationDelay = `${idx * 0.08}s`;
 
         const numStr = String(idx + 1).padStart(2, '0');
-        const imgUrl = `${baseUrl}/uploads/${encodeURIComponent(file.saved_name)}`;
+        // /uploads/* is proxied by vercel.json → Render backend
+        const imgUrl = `/uploads/${encodeURIComponent(file.saved_name)}`;
 
         card.innerHTML = `
             <div class="card-media-box" title="Click to inspect full resolution">
@@ -1034,69 +1142,321 @@ function initAnalysisDrawer() {
     const drawer = document.getElementById('analysis-drawer');
     const closeBtn = document.getElementById('drawer-close');
     const drawerContent = document.getElementById('drawer-content');
+    let activeAnalysisRun = 0;
+    let activeAnalysisController = null;
+    let activeAnalysisButton = null;
+    const analysisStages = [
+        'Image Upload & Validation',
+        'Image Preprocessing',
+        'CNN Classification',
+        'OCR Text Extraction',
+        'NLP Analysis',
+        'Structured Notes Generation'
+    ];
+
+    function activeJobStorageKey(savedName) {
+        return `classmind_active_analysis:${encodeURIComponent(savedName)}`;
+    }
+
+    function readActiveJobId(savedName) {
+        try {
+            const jobId = sessionStorage.getItem(activeJobStorageKey(savedName));
+            return jobId && jobId.length <= 128 ? jobId : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function storeActiveJobId(savedName, jobId) {
+        try {
+            sessionStorage.setItem(activeJobStorageKey(savedName), jobId);
+        } catch (_) {
+            // Keep analysis usable when storage is disabled or unavailable.
+        }
+    }
+
+    function clearActiveJobId(savedName, jobId) {
+        try {
+            const key = activeJobStorageKey(savedName);
+            if (sessionStorage.getItem(key) === jobId) sessionStorage.removeItem(key);
+        } catch (_) {
+            // Storage is only a recovery hint; server job state remains authoritative.
+        }
+    }
 
     if (!drawer) return;
 
-    if (closeBtn) {
+    if (closeBtn && closeBtn.dataset.analysisCloseBound !== 'true') {
+        closeBtn.dataset.analysisCloseBound = 'true';
         closeBtn.addEventListener('click', () => {
             drawer.classList.remove('open');
         });
     }
 
     document.querySelectorAll('.btn-run-pipeline').forEach((btn) => {
+        if (btn.dataset.analysisRunBound === 'true') return;
+        btn.dataset.analysisRunBound = 'true';
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             const savedName = btn.getAttribute('data-saved-name');
             const originalName = btn.getAttribute('data-orig-name') || savedName;
-            runAnalysis(savedName, originalName);
+            runAnalysis(savedName, originalName, btn);
         });
     });
 
-    function runAnalysis(savedName, originalName) {
+    const recoveryButton = Array.from(document.querySelectorAll('.btn-run-pipeline')).find((btn) => {
+        const savedName = btn.getAttribute('data-saved-name');
+        return savedName && readActiveJobId(savedName);
+    });
+    if (recoveryButton) {
+        const savedName = recoveryButton.getAttribute('data-saved-name');
+        const originalName = recoveryButton.getAttribute('data-orig-name') || savedName;
+        const jobId = readActiveJobId(savedName);
+        const recoveryKey = `${savedName}:${jobId}`;
+        if (drawer.dataset.recoveredAnalysis !== recoveryKey) {
+            drawer.dataset.recoveredAnalysis = recoveryKey;
+            runAnalysis(savedName, originalName, recoveryButton);
+        }
+    }
+
+    async function requestAnalysisJson(url, options, timeoutMs) {
+        const controller = new AbortController();
+        activeAnalysisController = controller;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        try {
+            const res = await fetch(url, { ...options, signal: controller.signal });
+            const contentType = res.headers.get('content-type') || '';
+            const body = await res.text();
+            let data = null;
+            try {
+                data = body ? JSON.parse(body) : null;
+            } catch (e) {
+                data = null;
+            }
+            if (!res.ok) {
+                const isAsyncJobCreate = url === '/api/analyze/jobs' &&
+                    String(options && options.method || 'GET').toUpperCase() === 'POST';
+                const isLegacyJobsFilenameError = res.status === 404 && isAsyncJobCreate &&
+                    /image file\s+['\"]jobs['\"]\s+not found/i.test(
+                        data && data.error ? data.error : body
+                    );
+                if (isLegacyJobsFilenameError) {
+                    const compatibilityError = new Error(
+                        'The connected backend does not support asynchronous analysis yet. Please update the backend deployment.'
+                    );
+                    compatibilityError.status = 404;
+                    compatibilityError.asyncUnsupported = true;
+                    throw compatibilityError;
+                }
+                const err = new Error((data && data.error)
+                    ? data.error
+                    : `The analysis service returned HTTP ${res.status}${contentType.includes('json') ? '.' : ' from an upstream service.'} Please retry shortly.`);
+                err.status = res.status;
+                throw err;
+            }
+            return data;
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                err.message = 'The analysis service timed out while responding.';
+                err.retryable = true;
+            } else if (err instanceof TypeError) {
+                err.message = 'Cannot reach the analysis service. Check the connection and retry.';
+                err.retryable = true;
+            }
+            throw err;
+        } finally {
+            clearTimeout(timeoutId);
+            if (activeAnalysisController === controller) activeAnalysisController = null;
+        }
+    }
+
+    function updateDrawerProgress(status, currentStage) {
+        const statusEl = document.getElementById('analysis-stage-status');
+        if (status === 'legacy') {
+            if (statusEl) statusEl.textContent = 'Analyzing image; this may take a little longer…';
+            drawerContent.querySelectorAll('.step-node[data-stage-order]').forEach((node) => {
+                node.classList.remove('completed', 'running');
+                const circle = node.querySelector('.step-circle');
+                if (circle) circle.textContent = node.dataset.stageNumber;
+            });
+            return;
+        }
+        if (status === 'reconnecting') {
+            if (statusEl) statusEl.textContent = 'Reconnecting to the analysis service…';
+            return;
+        }
+        if (statusEl) {
+            statusEl.textContent = status === 'queued'
+                ? 'Queued — waiting for the analysis worker…'
+                : `Current stage: ${currentStage || 'Starting analysis…'}`;
+        }
+
+        const currentIndex = Math.max(0, analysisStages.indexOf(currentStage));
+        drawerContent.querySelectorAll('.step-node[data-stage-order]').forEach((node) => {
+            const index = Number(node.dataset.stageOrder);
+            const circle = node.querySelector('.step-circle');
+            node.classList.remove('completed', 'running');
+            if (status === 'running' && index < currentIndex) {
+                node.classList.add('completed');
+                if (circle) circle.textContent = '✓';
+            } else if (status === 'running' && index === currentIndex) {
+                node.classList.add('running');
+                if (circle) circle.textContent = '⚡';
+            } else if (circle) {
+                circle.textContent = node.dataset.stageNumber;
+            }
+        });
+    }
+
+    function findRunButton(savedName) {
+        return Array.from(document.querySelectorAll('.btn-run-pipeline')).find(
+            (btn) => btn.getAttribute('data-saved-name') === savedName
+        ) || null;
+    }
+
+    function setRunButtonBusy(button, isBusy) {
+        if (!button) return;
+        button.disabled = isBusy;
+        button.setAttribute('aria-busy', String(isBusy));
+    }
+
+    function runAnalysis(savedName, originalName, triggerButton = null) {
+        if (activeAnalysisController) activeAnalysisController.abort();
+        const runId = ++activeAnalysisRun;
+        setRunButtonBusy(activeAnalysisButton, false);
+        activeAnalysisButton = triggerButton || findRunButton(savedName);
+        setRunButtonBusy(activeAnalysisButton, true);
         drawer.classList.add('open');
         showDrawerLoading(originalName);
+        const savedJobId = readActiveJobId(savedName);
+        updateDrawerProgress(savedJobId ? 'reconnecting' : 'queued');
 
-        // Fetch backend AI analysis with 180s timeout controller
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 180000);
+        (async () => {
+            try {
+                let jobId = savedJobId;
+                let initialStatus = savedJobId ? null : 'queued';
+                if (!jobId) {
+                    let accepted;
+                    try {
+                        accepted = await requestAnalysisJson('/api/analyze/jobs', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify({ filename: savedName })
+                        }, 110000);
+                    } catch (err) {
+                        // Older backend deployments route this path as the image
+                        // endpoint for a file literally named "jobs". Use their
+                        // synchronous endpoint while that backend is being updated.
+                        if (!err.asyncUnsupported) throw err;
+                        if (runId !== activeAnalysisRun) return;
 
-        fetch(`${getApiBaseUrl()}/api/analyze/${encodeURIComponent(savedName)}`, {
-            signal: controller.signal
-        })
-            .then(async (res) => {
-                clearTimeout(timeoutId);
-                let data = null;
-                try {
-                    data = await res.json();
-                } catch (e) {
-                    data = null;
+                        updateDrawerProgress('legacy');
+                        const legacyResult = await requestAnalysisJson(
+                            `/api/analyze/${encodeURIComponent(savedName)}`,
+                            { headers: { 'Accept': 'application/json' } },
+                            180000
+                        );
+                        if (runId !== activeAnalysisRun) return;
+                        if (!legacyResult || !legacyResult.success || !legacyResult.classification) {
+                            throw new Error('The analysis service returned an invalid result. Please retry.');
+                        }
+                        renderDrawerResults(legacyResult, originalName);
+                        showToast('AI pipeline analysis completed!', 'success');
+                        return;
+                    }
+                    if (runId !== activeAnalysisRun) return;
+                    if (!accepted || !accepted.job_id) {
+                        throw new Error('The analysis service did not return a job ID. Please retry.');
+                    }
+
+                    jobId = accepted.job_id;
+                    initialStatus = accepted.status || 'queued';
+                    storeActiveJobId(savedName, jobId);
                 }
-                if (!res.ok) {
-                    const msg = (data && data.error) ? data.error : `Server Error (HTTP ${res.status})`;
-                    throw new Error(msg);
+
+                const deadline = Date.now() + 15 * 60 * 1000;
+                let consecutivePollErrors = 0;
+
+                while (Date.now() < deadline && runId === activeAnalysisRun) {
+                    if (initialStatus) {
+                        updateDrawerProgress(initialStatus);
+                        initialStatus = null;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 2500));
+                    if (runId !== activeAnalysisRun) return;
+
+                    let job;
+                    try {
+                        job = await requestAnalysisJson(
+                            `/api/analyze/jobs/${encodeURIComponent(jobId)}`,
+                            { headers: { 'Accept': 'application/json' } },
+                            15000
+                        );
+                        consecutivePollErrors = 0;
+                    } catch (err) {
+                        if (runId !== activeAnalysisRun) return;
+                        if (err.status === 404) {
+                            clearActiveJobId(savedName, jobId);
+                            throw new Error('This analysis job is no longer available. It may have been interrupted by a server restart. Retry to reconnect or start it again.');
+                        }
+                        if (err.retryable || err.status >= 500) {
+                            consecutivePollErrors += 1;
+                            if (consecutivePollErrors <= 5) {
+                                updateDrawerProgress('reconnecting');
+                                continue;
+                            }
+                        }
+                        throw err;
+                    }
+
+                    if (!job || !job.status) {
+                        throw new Error('The analysis service returned an invalid job status. Please retry.');
+                    }
+                    if (job.status === 'queued' || job.status === 'running') {
+                        updateDrawerProgress(job.status, job.current_stage);
+                        continue;
+                    }
+                    if (job.status === 'completed') {
+                        if (!job.result) throw new Error('The completed job did not include analysis results.');
+                        clearActiveJobId(savedName, jobId);
+                        renderDrawerResults(job.result, originalName);
+                        showToast('AI pipeline analysis completed!', 'success');
+                        return;
+                    }
+                    if (job.status === 'failed') {
+                        clearActiveJobId(savedName, jobId);
+                        throw new Error(job.error || 'The image could not be processed. Please retry.');
+                    }
+                    if (job.status === 'not_found') {
+                        clearActiveJobId(savedName, jobId);
+                        throw new Error(job.error || 'This analysis job is no longer available. Retry the analysis.');
+                    }
+                    throw new Error('The analysis service returned an unknown job status. Please retry.');
                 }
-                return data;
-            })
-            .then((data) => {
-                if (!data) throw new Error('Received empty response from inference server.');
-                if (data.error && !data.success && !data.classification) {
-                    renderDrawerError(data.error, savedName, originalName);
-                } else {
-                    renderDrawerResults(data, originalName);
-                    showToast('AI pipeline analysis completed!', 'success');
+
+                if (runId === activeAnalysisRun) {
+                    renderDrawerError(
+                        'Analysis is taking longer than expected. It may still be running; retry to reconnect to the active job.',
+                        savedName,
+                        originalName
+                    );
                 }
-            })
-            .catch((err) => {
-                clearTimeout(timeoutId);
-                let msg = err.message || 'Failed to connect to inference engine.';
-                if (err.name === 'AbortError') {
-                    msg = 'Pipeline inference timed out. High-resolution OCR is still completing on CPU.';
-                } else if (msg === 'Failed to fetch') {
-                    const activeUrl = getApiBaseUrl() || 'http://127.0.0.1:5000';
-                    msg = `Cannot reach backend server at ${activeUrl}. Ensure the Python backend service is active and accessible.`;
+            } catch (err) {
+                if (runId !== activeAnalysisRun) return;
+                renderDrawerError(
+                    err.message || 'Failed to connect to the analysis service.',
+                    savedName,
+                    originalName,
+                    Boolean(err.asyncUnsupported)
+                );
+            } finally {
+                if (runId === activeAnalysisRun) {
+                    setRunButtonBusy(activeAnalysisButton, false);
+                    activeAnalysisButton = null;
                 }
-                renderDrawerError(msg, savedName, originalName);
-            });
+            }
+        })();
     }
 
     function showDrawerLoading(name) {
@@ -1110,48 +1470,48 @@ function initAnalysisDrawer() {
                 <h4 style="font-family: var(--font-heading); font-size: 1.15rem; color: #fff; margin-bottom: 8px;">
                     Processing "${escapeHtml(name)}"
                 </h4>
-                <p style="font-size: 0.85rem; color: var(--primary-cyan); font-family: var(--font-mono);">
-                    Executing 6-Stage Deep Learning & Linguistic Pipeline...
+                <p id="analysis-stage-status" style="font-size: 0.85rem; color: var(--primary-cyan); font-family: var(--font-mono);">
+                    Queued — waiting for the analysis worker…
                 </p>
 
-                <!-- 6-Stage Timeline Simulation -->
+                <!-- Live progress reported by the background analysis job -->
                 <div class="pipeline-steps-timeline" style="margin-top: 35px; text-align: left;">
-                    <div class="step-node completed">
-                        <div class="step-circle">✓</div>
+                    <div class="step-node" data-stage-order="0" data-stage-number="1.0">
+                        <div class="step-circle">1.0</div>
                         <div class="step-content">
                             <h4>1.0 Image Upload & Validation</h4>
                             <p>User uploads the classroom-board image. Image format & dimensions verified.</p>
                         </div>
                     </div>
-                    <div class="step-node completed">
-                        <div class="step-circle">✓</div>
+                    <div class="step-node" data-stage-order="1" data-stage-number="2.0">
+                        <div class="step-circle">2.0</div>
                         <div class="step-content">
                             <h4>2.0 Image Preprocessing</h4>
                             <p>The image is resized, denoised, enhanced and sharpened.</p>
                         </div>
                     </div>
-                    <div class="step-node running">
-                        <div class="step-circle">⚡</div>
+                    <div class="step-node" data-stage-order="2" data-stage-number="3.0">
+                        <div class="step-circle">3.0</div>
                         <div class="step-content">
                             <h4>3.0 CNN Classification</h4>
                             <p>The CNN identifies the type of image/content such as board, text or background...</p>
                         </div>
                     </div>
-                    <div class="step-node">
+                    <div class="step-node" data-stage-order="3" data-stage-number="4.0">
                         <div class="step-circle">4.0</div>
                         <div class="step-content">
                             <h4>4.0 OCR Text Extraction</h4>
                             <p>OCR reads and extracts text from the classroom image.</p>
                         </div>
                     </div>
-                    <div class="step-node">
+                    <div class="step-node" data-stage-order="4" data-stage-number="5.0">
                         <div class="step-circle">5.0</div>
                         <div class="step-content">
                             <h4>5.0 NLP Analysis</h4>
                             <p>The extracted text is analyzed to identify important keywords and topics.</p>
                         </div>
                     </div>
-                    <div class="step-node">
+                    <div class="step-node" data-stage-order="5" data-stage-number="6.0">
                         <div class="step-circle">6.0</div>
                         <div class="step-content">
                             <h4>6.0 Structured Notes Generation</h4>
@@ -1166,6 +1526,8 @@ function initAnalysisDrawer() {
     function renderDrawerResults(data, originalName) {
         const classification = data.classification || { class: 'Unknown', confidence: 0 };
         const text = data.extracted_text || '';
+        const ocrWarning = data.ocr_warning || null;
+        const ocrQuality = data.ocr_quality || {};
         const keywords = data.keywords || [];
         const topics = data.topics || [];
         const notes = data.structured_notes || {
@@ -1203,31 +1565,32 @@ function initAnalysisDrawer() {
                         <p>The CNN identifies the type of image/content: <strong>${escapeHtml((classification.class || '').toUpperCase())}</strong> (${classification.confidence}%)</p>
                     </div>
                 </div>
-                <div class="step-node completed">
-                    <div class="step-circle">✓</div>
+                <div class="step-node ${ocrWarning ? 'warning' : 'completed'}">
+                    <div class="step-circle">${ocrWarning ? '!' : '✓'}</div>
                     <div class="step-content">
                         <h4>4.0 OCR Text Extraction</h4>
-                        <p>OCR reads and extracts text from the classroom image. (${(data.ocr_items || []).length} text regions detected)</p>
+                        <p>${escapeHtml(ocrWarning || `RapidOCR checked the original image and ${ocrQuality.variant === 'hsv_chalk' ? 'a chalk-color enhancement' : 'kept the original color input'}. ${(data.ocr_items || []).length} raw regions retained.`)}</p>
                     </div>
                 </div>
-                <div class="step-node completed">
-                    <div class="step-circle">✓</div>
+                <div class="step-node ${ocrWarning ? 'warning' : 'completed'}">
+                    <div class="step-circle">${ocrWarning ? '!' : '✓'}</div>
                     <div class="step-content">
                         <h4>5.0 NLP Analysis</h4>
-                        <p>The extracted text is analyzed to identify important keywords (${keywords.length}) and topics (${topics.length}).</p>
+                        <p>${escapeHtml(ocrWarning ? 'Skipped because the OCR transcript could not be verified.' : `The extracted text is analyzed to identify important keywords (${keywords.length}) and topics (${topics.length}).`)}</p>
                     </div>
                 </div>
-                <div class="step-node completed">
-                    <div class="step-circle">✓</div>
+                <div class="step-node ${ocrWarning ? 'warning' : 'completed'}">
+                    <div class="step-circle">${ocrWarning ? '!' : '✓'}</div>
                     <div class="step-content">
                         <h4>6.0 Structured Notes Generation</h4>
-                        <p>The system combines the extracted information and generates organized notes for the user.</p>
+                        <p>${escapeHtml(ocrWarning ? 'Notes were withheld because the recognized text is unreliable.' : 'The system combines verified extracted information and generates organized notes for the user.')}</p>
                     </div>
                 </div>
             </div>
 
             <!-- Stage 6.0 Structured Notes Generation Display Block -->
             <div class="structured-notes-card">
+                ${ocrWarning ? `<div class="ocr-warning-callout" role="alert"><strong>Clearer capture needed</strong><span>${escapeHtml(ocrWarning)}</span></div>` : ''}
                 <div class="note-header-strip">
                     <div>
                         <div class="step-tag-pill" style="margin-bottom: 6px; display: inline-block;">STAGE 6.0 GENERATED NOTES</div>
@@ -1349,11 +1712,11 @@ function initAnalysisDrawer() {
                 <div class="result-block-header">
                     <div>
                         <span class="step-tag-pill" style="font-size: 0.65rem; margin-right: 6px;">4.0</span>
-                        <span class="result-block-title">Deep Sequence OCR Extraction</span>
+                        <span class="result-block-title">Raw OCR Text Recognition</span>
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <span class="badge-format" style="background: rgba(139, 92, 246, 0.15); border: 1px solid rgba(139, 92, 246, 0.35); color: #c4b5fd;">
-                            CRAFT + BiLSTM CTC
+                            RapidOCR - ONNX Runtime - CPU
                         </span>
                         <button class="btn-copy-name" id="btn-copy-ocr" title="Copy Text" style="color: var(--primary-cyan); font-size: 0.8rem; display: flex; align-items: center; gap: 4px;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1422,7 +1785,7 @@ function initAnalysisDrawer() {
                         </a>
                     </div>
                     <div class="drawer-preview-img-wrap" style="border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border-subtle); max-height: 220px; display: flex; align-items: center; justify-content: center; background: #000; position: relative;">
-                        <img src="${getApiBaseUrl()}/pipeline_output/${encodeURIComponent(data.processed_filename)}" alt="Preprocessed Preview" style="max-width: 100%; max-height: 220px; object-fit: contain;">
+                        <img src="/pipeline_output/${encodeURIComponent(data.processed_filename)}" alt="Preprocessed Preview" style="max-width: 100%; max-height: 220px; object-fit: contain;">
                         <div class="heatmap-overlay" id="heatmap-overlay"></div>
                     </div>
                     <div class="heatmap-toggle-wrap">
@@ -1455,8 +1818,10 @@ function initAnalysisDrawer() {
         const copyOcrBtn = document.getElementById('btn-copy-ocr');
         if (copyOcrBtn && text) {
             copyOcrBtn.addEventListener('click', () => {
-                navigator.clipboard.writeText(text).then(() => {
+                copyTextToClipboard(text).then(() => {
                     showToast('Extracted OCR text copied!', 'success');
+                }).catch(() => {
+                    showToast('Failed to copy extracted text.', 'error');
                 });
             });
         }
@@ -1466,7 +1831,7 @@ function initAnalysisDrawer() {
         if (copyNotesBtn) {
             copyNotesBtn.addEventListener('click', () => {
                 const noteContent = notes.markdown || notes.plain_text || text;
-                navigator.clipboard.writeText(noteContent).then(() => {
+                copyTextToClipboard(noteContent).then(() => {
                     showToast('Complete structured notes copied to clipboard!', 'success');
                 }).catch(() => {
                     showToast('Failed to copy notes.', 'error');
@@ -1487,7 +1852,7 @@ function initAnalysisDrawer() {
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                window.setTimeout(() => URL.revokeObjectURL(url), 1000);
                 showToast('Structured notes downloaded (.md)!', 'success');
             });
         }
@@ -1505,13 +1870,13 @@ function initAnalysisDrawer() {
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                window.setTimeout(() => URL.revokeObjectURL(url), 1000);
                 showToast('Structured notes downloaded (.txt)!', 'success');
             });
         }
     }
 
-    function renderDrawerError(errMsg, savedName, originalName) {
+    function renderDrawerError(errMsg, savedName, originalName, asyncUnsupported = false) {
         drawerContent.innerHTML = `
             <div style="text-align: center; padding: 40px 15px;">
                 <div style="display: flex; justify-content: center; margin-bottom: 14px;">
@@ -1528,9 +1893,11 @@ function initAnalysisDrawer() {
                     ${escapeHtml(errMsg)}
                 </p>
                 <div style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: var(--radius-sm); padding: 12px; font-size: 0.8rem; color: #fecdd3; font-family: var(--font-mono); margin-bottom: 18px;">
-                    Ensure the pipeline models and OpenCV dependencies are loaded in the environment.
+                    ${asyncUnsupported
+                        ? 'Update the backend deployment before trying this analysis again.'
+                        : 'The service returned an error. Retry the analysis; if it continues, share the status message with the project maintainer.'}
                 </div>
-                ${savedName ? `
+                ${savedName && !asyncUnsupported ? `
                 <div>
                     <button type="button" class="btn-neural-submit" id="btn-retry-analysis" style="font-size: 0.82rem; padding: 8px 18px; width: auto; display: inline-flex; margin: 0 auto;">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1556,6 +1923,37 @@ function initAnalysisDrawer() {
 /* ==========================================================================
    6. UTILITY HELPERS
    ========================================================================== */
+async function copyTextToClipboard(text) {
+    if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return;
+        } catch (error) {
+            // Fall through to the selection-based copy path for browser permission quirks.
+        }
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '0';
+    textarea.style.left = '0';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+
+    let copied = false;
+    try {
+        copied = document.execCommand('copy');
+    } finally {
+        textarea.remove();
+    }
+    if (!copied) throw new Error('Clipboard access is unavailable.');
+}
+
 function formatBytes(bytes, decimals = 1) {
     if (bytes === 0) return '0 B';
     const k = 1024;

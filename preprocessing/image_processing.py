@@ -107,9 +107,10 @@ def make_ocr_variant(image, variant):
     """
     if image is None or not hasattr(image, "shape") or len(image.shape) < 2:
         raise ValueError("OCR variant input must be a decoded image array")
-    # Let RapidOCR's own bounded resize operate on the source dimensions. A
-    # separate 960 px resize here previously discarded thin strokes.
-    base = image.copy()
+    # Preserve fine strokes while keeping evaluation and fallback inputs
+    # bounded. The OCR cap is 1600 px; the older 960 px preprocessing cap
+    # discarded thin handwriting.
+    base = _resize_for_ocr(image)
     gray = None
     try:
         if variant == "original_rgb":

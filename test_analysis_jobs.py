@@ -646,6 +646,64 @@ class CNNInferenceTests(unittest.TestCase):
 
 
 class PipelineProgressTests(unittest.TestCase):
+    def test_cli_notes_receive_only_quality_filtered_ocr_regions(self):
+        raw_items = [
+            {"text": "Database table", "confidence": 0.99},
+            {"text": "uncertain scribble", "confidence": 0.61},
+        ]
+        verified_items = [{"text": "Database table", "confidence": 0.99}]
+        captured = {}
+
+        def capture_notes(**kwargs):
+            captured.update(kwargs)
+            return {"title": "Verified Notes", "plain_text": "Verified Notes"}
+
+        def make_module(name, **attributes):
+            module = types.ModuleType(name)
+            for key, value in attributes.items():
+                setattr(module, key, value)
+            return module
+
+        fake_modules = {
+            "preprocessing.image_processing": make_module(
+                "preprocessing.image_processing",
+                preprocess_image=lambda *_args: None,
+            ),
+            "cnn.predict": make_module(
+                "cnn.predict",
+                predict_image=lambda _path: {"class": "board", "confidence": 0.91},
+            ),
+            "ocr.extractor": make_module(
+                "ocr.extractor", extract_text=lambda _path: raw_items,
+            ),
+            "nlp.quality": make_module(
+                "nlp.quality",
+                assess_ocr_quality=lambda _items: {
+                    "analysis_items": verified_items,
+                    "analysis_text": "Database table",
+                    "reliable": True,
+                    "warning": None,
+                },
+                low_confidence_notes=lambda _warning: {},
+            ),
+            "nlp.keywords": make_module(
+                "nlp.keywords", extract_keywords=lambda *_args, **_kwargs: [],
+            ),
+            "nlp.topics": make_module(
+                "nlp.topics", detect_topics=lambda _text: [],
+            ),
+            "nlp.notes": make_module(
+                "nlp.notes", generate_structured_notes=capture_notes,
+            ),
+        }
+        with patch.object(pipeline, "validate_image", return_value={
+            "valid": True, "filename": "board.jpg", "width": 24, "height": 24,
+            "format": "PNG", "size_bytes": 100,
+        }), patch("pipeline.os.makedirs"), patch.dict(sys.modules, fake_modules):
+            pipeline.run_pipeline("board.jpg")
+
+        self.assertEqual(captured["ocr_items"], verified_items)
+
     def test_stage_callback_preserves_six_stage_result_shape(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = os.path.join(temp_dir, "board.jpg")
@@ -752,7 +810,14 @@ class PipelineProgressTests(unittest.TestCase):
         root = Path(__file__).parent
         source = (root / "js" / "script.js").read_text(encoding="utf-8")
         published = (root / "public" / "js" / "script.js").read_text(encoding="utf-8")
+        flask_static = (root / "static" / "js" / "script.js").read_text(encoding="utf-8")
+        css_source = (root / "css" / "style.css").read_text(encoding="utf-8")
+        css_published = (root / "public" / "css" / "style.css").read_text(encoding="utf-8")
+        css_flask_static = (root / "static" / "css" / "style.css").read_text(encoding="utf-8")
         self.assertEqual(source, published)
+        self.assertEqual(source, flask_static)
+        self.assertEqual(css_source, css_published)
+        self.assertEqual(css_source, css_flask_static)
         self.assertIn("/api/analyze/jobs", source)
         self.assertIn("method: 'POST'", source)
         self.assertNotIn("JSON.stringify({ filename: 'jobs' })", source)

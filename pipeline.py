@@ -242,7 +242,7 @@ def run_pipeline(image_path: str):
             extracted_text=analysis_text,
             keywords=keywords,
             topics=topics,
-            ocr_items=ocr_results,
+            ocr_items=ocr_quality["analysis_items"],
         )
         if ocr_quality["reliable"]
         else low_confidence_notes(ocr_quality["warning"])

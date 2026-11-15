@@ -29,6 +29,16 @@ class OCRPreprocessingTests(unittest.TestCase):
             self.assertLessEqual(max(variant.shape[:2]), 1600, variant_name)
         np.testing.assert_array_equal(self.image, original)
 
+    def test_large_ocr_inputs_are_resized_to_the_1600_pixel_cap(self):
+        image = np.zeros((1700, 2100, 3), dtype=np.uint8)
+        original = image.copy()
+
+        for variant_name in ("original_rgb", "hsv_chalk"):
+            variant = make_ocr_variant(image, variant_name)
+            self.assertLessEqual(max(variant.shape[:2]), 1600, variant_name)
+
+        np.testing.assert_array_equal(image, original)
+
     def test_production_preprocessor_still_writes_for_classifier(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "source.png"

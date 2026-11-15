@@ -90,14 +90,21 @@ def main():
         help="Comma-separated variant names from preprocessing.image_processing.OCR_VARIANTS",
     )
     args = parser.parse_args()
+    if not args.images:
+        parser.error("provide at least one image to evaluate")
     variants = [value.strip() for value in args.variants.split(",") if value.strip()]
+    if not variants:
+        parser.error("--variants must contain at least one OCR variant")
     unknown = sorted(set(variants) - set(OCR_VARIANTS))
     if unknown:
         parser.error(f"Unknown variant(s): {', '.join(unknown)}")
     if args.ground_truth and len(args.images) != 1:
         parser.error("--ground-truth can be used with one image at a time")
 
-    truth = Path(args.ground_truth).read_text(encoding="utf-8") if args.ground_truth else None
+    try:
+        truth = Path(args.ground_truth).read_text(encoding="utf-8") if args.ground_truth else None
+    except (OSError, UnicodeError) as exc:
+        parser.error(f"could not read ground-truth transcript: {exc}")
     process = psutil.Process()
     peak_rss = [process.memory_info().rss]
     done = threading.Event()
