@@ -1235,6 +1235,9 @@ function initAnalysisDrawer() {
                 data = null;
             }
             if (!res.ok) {
+                const retryAfterMs = window.ClassMindRetryPolicy.parseRetryAfterMs(
+                    res.headers.get('Retry-After')
+                );
                 const isAsyncJobCreate = url === '/api/analyze/jobs' &&
                     String(options && options.method || 'GET').toUpperCase() === 'POST';
                 const isLegacyJobsFilenameError = res.status === 404 && isAsyncJobCreate &&
@@ -1249,10 +1252,18 @@ function initAnalysisDrawer() {
                     compatibilityError.asyncUnsupported = true;
                     throw compatibilityError;
                 }
-                const err = new Error((data && data.error)
+                let message = (data && data.error)
                     ? data.error
-                    : `The analysis service returned HTTP ${res.status}${contentType.includes('json') ? '.' : ' from an upstream service.'} Please retry shortly.`);
+                    : (res.status === 429
+                        ? 'The analysis service is rate-limiting requests. Please wait before trying again.'
+                        : `The analysis service returned HTTP ${res.status}${contentType.includes('json') ? '.' : ' from an upstream service.'} Please retry shortly.`);
+                if (res.status === 429 && retryAfterMs !== null) {
+                    message += ` Wait at least ${Math.max(1, Math.ceil(retryAfterMs / 1000))} seconds before trying again.`;
+                }
+                const err = new Error(message);
                 err.status = res.status;
+                err.retryAfterMs = retryAfterMs;
+                err.retryable = res.status === 429 || res.status >= 500;
                 throw err;
             }
             return data;
@@ -1375,73 +1386,95 @@ function initAnalysisDrawer() {
                     storeActiveJobId(savedName, jobId);
                 }
 
-                const deadline = Date.now() + 15 * 60 * 1000;
-                let consecutivePollErrors = 0;
+                await window.ClassMindRetryPolicy.withJobPollLock(jobId, async () => {
+                    const deadline = Date.now() + 15 * 60 * 1000;
+                    let consecutivePollErrors = 0;
+                    let nextPollDelayMs = null;
 
-                while (Date.now() < deadline && runId === activeAnalysisRun) {
-                    if (initialStatus) {
-                        updateDrawerProgress(initialStatus);
-                        initialStatus = null;
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 2500));
-                    if (runId !== activeAnalysisRun) return;
-
-                    let job;
-                    try {
-                        job = await requestAnalysisJson(
-                            `/api/analyze/jobs/${encodeURIComponent(jobId)}`,
-                            { headers: { 'Accept': 'application/json' } },
-                            15000
-                        );
-                        consecutivePollErrors = 0;
-                    } catch (err) {
+                    while (Date.now() < deadline && runId === activeAnalysisRun) {
+                        if (initialStatus) {
+                            updateDrawerProgress(initialStatus);
+                            initialStatus = null;
+                        }
+                        const pollDelayMs = nextPollDelayMs === null
+                            ? window.ClassMindRetryPolicy.pollIntervalMs(
+                                document.visibilityState === 'visible'
+                            )
+                            : nextPollDelayMs;
+                        nextPollDelayMs = null;
+                        await new Promise(resolve => setTimeout(resolve, pollDelayMs));
                         if (runId !== activeAnalysisRun) return;
-                        if (err.status === 404) {
-                            clearActiveJobId(savedName, jobId);
-                            throw new Error('This analysis job is no longer available. It may have been interrupted by a server restart. Retry to reconnect or start it again.');
-                        }
-                        if (err.retryable || err.status >= 500) {
-                            consecutivePollErrors += 1;
-                            if (consecutivePollErrors <= 5) {
-                                updateDrawerProgress('reconnecting');
-                                continue;
+
+                        let job;
+                        try {
+                            job = await requestAnalysisJson(
+                                `/api/analyze/jobs/${encodeURIComponent(jobId)}`,
+                                { headers: { 'Accept': 'application/json' } },
+                                15000
+                            );
+                            consecutivePollErrors = 0;
+                        } catch (err) {
+                            if (runId !== activeAnalysisRun) return;
+                            if (err.status === 404) {
+                                clearActiveJobId(savedName, jobId);
+                                throw new Error('This analysis job is no longer available. It may have been interrupted by a server restart. Retry to reconnect or start it again.');
                             }
+                            if (err.retryable || err.status >= 500) {
+                                consecutivePollErrors += 1;
+                                if (window.ClassMindRetryPolicy.shouldRetryPoll(
+                                    err.status,
+                                    consecutivePollErrors
+                                )) {
+                                    updateDrawerProgress('reconnecting');
+                                    nextPollDelayMs = window.ClassMindRetryPolicy.computeRetryDelayMs(
+                                        consecutivePollErrors,
+                                        err.retryAfterMs
+                                    );
+                                    continue;
+                                }
+                                if (err.status === 429) {
+                                    const retryMessage = 'Status checks were repeatedly rate-limited. The existing job is saved; retry later to reconnect without submitting it again.';
+                                    err.message = err.retryAfterMs === null || err.retryAfterMs === undefined
+                                        ? retryMessage
+                                        : `${retryMessage} Wait at least ${Math.max(1, Math.ceil(err.retryAfterMs / 1000))} seconds.`;
+                                }
+                            }
+                            throw err;
                         }
-                        throw err;
+
+                        if (!job || !job.status) {
+                            throw new Error('The analysis service returned an invalid job status. Please retry.');
+                        }
+                        if (job.status === 'queued' || job.status === 'running') {
+                            updateDrawerProgress(job.status, job.current_stage);
+                            continue;
+                        }
+                        if (job.status === 'completed') {
+                            if (!job.result) throw new Error('The completed job did not include analysis results.');
+                            clearActiveJobId(savedName, jobId);
+                            renderDrawerResults(job.result, originalName);
+                            showToast('AI pipeline analysis completed!', 'success');
+                            return;
+                        }
+                        if (job.status === 'failed') {
+                            clearActiveJobId(savedName, jobId);
+                            throw new Error(job.error || 'The image could not be processed. Please retry.');
+                        }
+                        if (job.status === 'not_found') {
+                            clearActiveJobId(savedName, jobId);
+                            throw new Error(job.error || 'This analysis job is no longer available. Retry the analysis.');
+                        }
+                        throw new Error('The analysis service returned an unknown job status. Please retry.');
                     }
 
-                    if (!job || !job.status) {
-                        throw new Error('The analysis service returned an invalid job status. Please retry.');
+                    if (runId === activeAnalysisRun) {
+                        renderDrawerError(
+                            'Analysis is taking longer than expected. It may still be running; retry to reconnect to the active job.',
+                            savedName,
+                            originalName
+                        );
                     }
-                    if (job.status === 'queued' || job.status === 'running') {
-                        updateDrawerProgress(job.status, job.current_stage);
-                        continue;
-                    }
-                    if (job.status === 'completed') {
-                        if (!job.result) throw new Error('The completed job did not include analysis results.');
-                        clearActiveJobId(savedName, jobId);
-                        renderDrawerResults(job.result, originalName);
-                        showToast('AI pipeline analysis completed!', 'success');
-                        return;
-                    }
-                    if (job.status === 'failed') {
-                        clearActiveJobId(savedName, jobId);
-                        throw new Error(job.error || 'The image could not be processed. Please retry.');
-                    }
-                    if (job.status === 'not_found') {
-                        clearActiveJobId(savedName, jobId);
-                        throw new Error(job.error || 'This analysis job is no longer available. Retry the analysis.');
-                    }
-                    throw new Error('The analysis service returned an unknown job status. Please retry.');
-                }
-
-                if (runId === activeAnalysisRun) {
-                    renderDrawerError(
-                        'Analysis is taking longer than expected. It may still be running; retry to reconnect to the active job.',
-                        savedName,
-                        originalName
-                    );
-                }
+                }, navigator.locks);
             } catch (err) {
                 if (runId !== activeAnalysisRun) return;
                 renderDrawerError(
