@@ -484,6 +484,29 @@ class AnalysisJobRouteTests(unittest.TestCase):
         self.assertEqual(plain_text.status_code, 200)
         self.assertEqual(plain_text.get_data(as_text=True), "Cached Board Notes")
 
+    def test_export_notes_rejects_withheld_unverified_notes(self):
+        result = {
+            "success": True,
+            "ocr_warning": "OCR confidence is low; retake the image.",
+            "ocr_quality": {"reliable": False},
+            "structured_notes": {
+                "title": "Text Capture Needs Review",
+                "markdown": "# Text Capture Needs Review",
+                "plain_text": "Text Capture Needs Review",
+            },
+        }
+        with patch.object(
+            analysis_jobs.job_manager,
+            "completed_result_for_filename",
+            return_value=result,
+        ):
+            markdown = self.client.get("/api/export-notes/board.jpg?format=md")
+            plain_text = self.client.get("/api/export-notes/board.jpg?format=txt")
+
+        for response in (markdown, plain_text):
+            self.assertEqual(response.status_code, 409)
+            self.assertIn("OCR transcript was not verified", response.get_json()["error"])
+
     def test_export_notes_requires_a_completed_job(self):
         response = self.client.get("/api/export-notes/board.jpg?format=md")
         self.assertEqual(response.status_code, 409)

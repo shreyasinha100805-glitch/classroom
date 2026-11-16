@@ -190,6 +190,14 @@ def main():
             if not result["structured_notes"].get("title"):
                 raise AssertionError("Structured notes were not returned")
 
+            notes_available = (
+                isinstance(result.get("ocr_quality"), dict)
+                and result["ocr_quality"].get("reliable") is True
+                and not result.get("ocr_warning")
+                and bool(result["structured_notes"].get("markdown"))
+                and bool(result["structured_notes"].get("plain_text"))
+            )
+
             markdown_export = client.get(
                 f"/api/export-notes/{filename}?format=md",
                 headers=origin_headers,
@@ -198,16 +206,21 @@ def main():
                 f"/api/export-notes/{filename}?format=txt",
                 headers=origin_headers,
             )
+            expected_export_status = 200 if notes_available else 409
             for export_response in (markdown_export, text_export):
-                if export_response.status_code != 200:
+                if export_response.status_code != expected_export_status:
                     raise AssertionError(
-                        f"Notes export failed: {export_response.status_code} "
+                        f"Notes export returned {export_response.status_code}; "
+                        f"expected {expected_export_status} based on OCR verification: "
                         f"{export_response.get_data(as_text=True)}"
                     )
-                if not export_response.headers.get("Content-Disposition", "").startswith("attachment;"):
-                    raise AssertionError("Notes export did not set an attachment disposition")
-                if not export_response.get_data():
-                    raise AssertionError("Notes export returned an empty file")
+                if notes_available:
+                    if not export_response.headers.get("Content-Disposition", "").startswith("attachment;"):
+                        raise AssertionError("Notes export did not set an attachment disposition")
+                    if not export_response.get_data():
+                        raise AssertionError("Notes export returned an empty file")
+                elif "OCR transcript was not verified" not in export_response.get_data(as_text=True):
+                    raise AssertionError("Unverified notes export did not explain why it was blocked")
                 check_cors(export_response, "Notes export")
 
             unknown_response = client.get(
@@ -235,6 +248,7 @@ def main():
                 "unknown_job_status": unknown_response.status_code,
                 "markdown_export_status": markdown_export.status_code,
                 "text_export_status": text_export.status_code,
+                "notes_available_for_export": notes_available,
                 "final_job_status": final_job["status"],
                 "pipeline_stages": result["stages"],
                 "ocr_items": len(result["ocr_items"]),

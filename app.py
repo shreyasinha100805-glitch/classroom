@@ -923,6 +923,19 @@ def export_notes(filename):
             "error": "Run the analysis and wait for it to complete before exporting notes.",
         }), 409
 
+    quality = result.get("ocr_quality") if isinstance(result, dict) else None
+    if (
+        result.get("ocr_warning")
+        or (isinstance(quality, dict) and quality.get("reliable") is False)
+        or notes.get("title") == "Text Capture Needs Review"
+        or not notes.get("markdown")
+        or not notes.get("plain_text")
+    ):
+        return jsonify({
+            "success": False,
+            "error": "Study notes are unavailable because the OCR transcript was not verified.",
+        }), 409
+
     if format_type == "txt":
         content = notes.get("plain_text", "")
         mimetype = "text/plain"

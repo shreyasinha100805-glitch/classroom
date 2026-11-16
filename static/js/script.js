@@ -1526,19 +1526,21 @@ function initAnalysisDrawer() {
     function renderDrawerResults(data, originalName) {
         const classification = data.classification || { class: 'Unknown', confidence: 0 };
         const text = data.extracted_text || '';
-        const ocrWarning = data.ocr_warning || null;
         const ocrQuality = data.ocr_quality || {};
         const keywords = data.keywords || [];
         const topics = data.topics || [];
-        const notes = data.structured_notes || {
-            title: 'Classroom Board Notes',
-            date: new Date().toLocaleDateString(),
-            board_type: classification.class,
-            confidence: classification.confidence,
-            key_points: text ? [text] : [],
-            markdown: text,
-            plain_text: text
-        };
+        const notes = data.structured_notes || {};
+        const hasNotesContent = Boolean(
+            (typeof notes.markdown === 'string' && notes.markdown.trim()) ||
+            (typeof notes.plain_text === 'string' && notes.plain_text.trim())
+        );
+        const notesVerified = hasNotesContent && !data.ocr_warning &&
+            ocrQuality.reliable !== false && notes.title !== 'Text Capture Needs Review';
+        const ocrWarning = data.ocr_warning ||
+            (ocrQuality.reliable === false ? 'The OCR transcript could not be verified.' : null);
+        const notesWarning = ocrWarning || notes.warning ||
+            'Verified study notes were not returned for this image.';
+        const retakeInstructions = 'Retake closer to the board with the camera in focus. Keep all writing inside the frame, hold the camera parallel to the board, and avoid glare, shadows, and motion blur.';
         const savedName = data.processed_filename ? data.processed_filename.replace(/^proc_/, '') : originalName;
 
         drawerContent.innerHTML = `
@@ -1569,7 +1571,7 @@ function initAnalysisDrawer() {
                     <div class="step-circle">${ocrWarning ? '!' : '✓'}</div>
                     <div class="step-content">
                         <h4>4.0 OCR Text Extraction</h4>
-                        <p>${escapeHtml(ocrWarning || `RapidOCR checked the original image and ${ocrQuality.variant === 'hsv_chalk' ? 'a chalk-color enhancement' : 'kept the original color input'}. ${(data.ocr_items || []).length} raw regions retained.`)}</p>
+                        <p>${escapeHtml(ocrWarning || `RapidOCR checked the original image and ${ocrQuality.variant === 'hsv_chalk' ? 'a chalk-color enhancement' : (ocrQuality.variant === 'upscaled' ? 'a 2x cubic text upscale' : 'kept the original color input')}. ${(data.ocr_items || []).length} raw regions retained.`)}</p>
                     </div>
                 </div>
                 <div class="step-node ${ocrWarning ? 'warning' : 'completed'}">
@@ -1579,25 +1581,25 @@ function initAnalysisDrawer() {
                         <p>${escapeHtml(ocrWarning ? 'Skipped because the OCR transcript could not be verified.' : `The extracted text is analyzed to identify important keywords (${keywords.length}) and topics (${topics.length}).`)}</p>
                     </div>
                 </div>
-                <div class="step-node ${ocrWarning ? 'warning' : 'completed'}">
-                    <div class="step-circle">${ocrWarning ? '!' : '✓'}</div>
+                <div class="step-node ${notesVerified ? 'completed' : 'warning'}">
+                    <div class="step-circle">${notesVerified ? '✓' : '!'}</div>
                     <div class="step-content">
                         <h4>6.0 Structured Notes Generation</h4>
-                        <p>${escapeHtml(ocrWarning ? 'Notes were withheld because the recognized text is unreliable.' : 'The system combines verified extracted information and generates organized notes for the user.')}</p>
+                        <p>${escapeHtml(notesVerified ? 'The system combines verified extracted information and generates organized notes for the user.' : 'Study notes were withheld. Review the OCR warning and retake guidance below.')}</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Stage 6.0 Structured Notes Generation Display Block -->
+            <!-- Stage 6.0 result; warning-only state is never presented as generated notes -->
             <div class="structured-notes-card">
-                ${ocrWarning ? `<div class="ocr-warning-callout" role="alert"><strong>Clearer capture needed</strong><span>${escapeHtml(ocrWarning)}</span></div>` : ''}
+                ${!notesVerified ? `<div class="ocr-warning-callout" role="alert"><strong>Text Capture Needs Review</strong><span>${escapeHtml(notesWarning)}</span><span>${escapeHtml(retakeInstructions)}</span></div>` : ''}
                 <div class="note-header-strip">
                     <div>
-                        <div class="step-tag-pill" style="margin-bottom: 6px; display: inline-block;">STAGE 6.0 GENERATED NOTES</div>
-                        <h3 class="note-title-text">${escapeHtml(notes.title || 'Classroom Study Notes')}</h3>
+                        <div class="step-tag-pill" style="margin-bottom: 6px; display: inline-block;">${notesVerified ? 'STAGE 6.0 GENERATED NOTES' : 'STAGE 6.0 NOTES WITHHELD'}</div>
+                        <h3 class="note-title-text">${escapeHtml(notesVerified ? (notes.title || 'Classroom Study Notes') : 'Text Capture Needs Review')}</h3>
                         <div class="note-date-text">${escapeHtml(notes.date || '')} • Source: ${escapeHtml((notes.board_type || classification.class || 'Board').toUpperCase())}</div>
                     </div>
-                    <div class="note-actions-group">
+                    ${notesVerified ? `<div class="note-actions-group">
                         <button type="button" class="btn-note-action" id="btn-copy-notes" title="Copy complete formatted notes">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -1621,25 +1623,23 @@ function initAnalysisDrawer() {
                             </svg>
                             .TXT
                         </button>
-                    </div>
+                    </div>` : ''}
                 </div>
 
                 <!-- Structured Key Points -->
-                <div class="note-points-box">
+                ${notesVerified ? `<div class="note-points-box">
                     <div class="note-section-heading">Key Extracted Takeaways & Bullet Points</div>
                     <ul class="note-bullet-list">
-                        ${
-                            (notes.key_points && notes.key_points.length > 0)
-                                ? notes.key_points.map(pt => `
-                                    <li class="note-bullet-item">
-                                        <span class="note-bullet-dot">▸</span>
-                                        <span>${escapeHtml(pt)}</span>
-                                    </li>
-                                  `).join('')
-                                : '<li class="note-bullet-item" style="color: var(--text-muted); font-style: italic;">No bullet points generated.</li>'
-                        }
+                        ${(notes.key_points && notes.key_points.length > 0)
+                            ? notes.key_points.map(pt => `
+                                <li class="note-bullet-item">
+                                    <span class="note-bullet-dot">▸</span>
+                                    <span>${escapeHtml(pt)}</span>
+                                </li>
+                              `).join('')
+                            : '<li class="note-bullet-item" style="color: var(--text-muted); font-style: italic;">No bullet points generated.</li>'}
                     </ul>
-                </div>
+                </div>` : ''}
             </div>
 
             <!-- Stage 3.0 CNN Classification & Softmax Deep Learning Block -->

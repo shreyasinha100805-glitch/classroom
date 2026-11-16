@@ -5,6 +5,7 @@ academic/common terms, clear identifiers, numbers, and symbols for analysis; it
 does not autocorrect or complete uncertain text.
 """
 
+import math
 import re
 
 from nlp.topics import TOPIC_CATEGORIES
@@ -79,8 +80,10 @@ def assess_ocr_quality(ocr_items):
         and isinstance(item.get("text"), str)
         and item.get("text", "").strip()
         and isinstance(item.get("confidence"), (int, float))
+        and math.isfinite(float(item["confidence"]))
+        and 0.0 <= float(item["confidence"]) <= 1.0
     ]
-    mean_confidence = (
+    raw_mean_confidence = (
         sum(float(item["confidence"]) for item in valid_items) / len(valid_items)
         if valid_items else 0.0
     )
@@ -89,6 +92,7 @@ def assess_ocr_quality(ocr_items):
     meaningful_terms = set()
     accepted_regions = 0
     analysis_items = []
+    analysis_confidences = []
 
     for item in valid_items:
         text = item["text"].strip()
@@ -110,6 +114,7 @@ def assess_ocr_quality(ocr_items):
         else:
             accepted_lines.append(" ".join(tokens))
         accepted_regions += 1
+        analysis_confidences.append(confidence)
         analysis_item = {
             "text": accepted_lines[-1],
             "confidence": round(confidence, 4),
@@ -119,8 +124,12 @@ def assess_ocr_quality(ocr_items):
         analysis_items.append(analysis_item)
 
     analysis_text = "\n".join(accepted_lines)
+    analysis_mean_confidence = (
+        sum(analysis_confidences) / len(analysis_confidences)
+        if analysis_confidences else 0.0
+    )
     quality_reliable = (
-        mean_confidence >= 0.72
+        analysis_mean_confidence >= 0.72
         and accepted_regions >= 2
         and len(accepted_tokens) >= 5
         and len(meaningful_terms) >= 3
@@ -136,7 +145,8 @@ def assess_ocr_quality(ocr_items):
         "analysis_items": analysis_items,
         "reliable": quality_reliable,
         "warning": warning,
-        "average_confidence": round(mean_confidence, 4),
+        "average_confidence": round(raw_mean_confidence, 4),
+        "analysis_average_confidence": round(analysis_mean_confidence, 4),
         "valid_region_count": len(valid_items),
         "analysis_region_count": accepted_regions,
         "supported_token_count": len(accepted_tokens),

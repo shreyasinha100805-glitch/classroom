@@ -54,8 +54,18 @@ for (const file of htmlFiles) {
 }
 
 assert.equal(read('js/script.js'), read('public/js/script.js'), 'public JavaScript is stale; run node build.js');
+assert.equal(read('js/script.js'), read('static/js/script.js'), 'Flask static JavaScript is stale; run node build.js');
 assert.equal(read('css/style.css'), read('public/css/style.css'), 'public CSS is stale; run node build.js');
+assert.equal(read('css/style.css'), read('static/css/style.css'), 'Flask static CSS is stale; run node build.js');
 assert.match(read('public/css/style.css'), /@media\s*\(/, 'responsive CSS is missing from public output');
+
+const frontendScript = read('js/script.js');
+assert.match(frontendScript, /Text Capture Needs Review/, 'unverified OCR must use the review state');
+assert.match(frontendScript, /STAGE 6\.0 NOTES WITHHELD/, 'unverified OCR must not be labeled as generated notes');
+assert.match(frontendScript, /notesVerified \? `<div class="note-actions-group">/, 'copy and export actions must be conditional on verified notes');
+assert.match(frontendScript, /notesVerified \? `<div class="note-points-box">/, 'unverified notes must not render a notes body');
+assert.match(frontendScript, /const retakeInstructions =/, 'unverified OCR must show useful retake guidance');
+assert.match(frontendScript, /id="btn-copy-ocr"/, 'raw OCR inspection must remain available');
 
 const css = read('public/css/style.css').replace(/\/\*[\s\S]*?\*\//g, '');
 assert.equal((css.match(/{/g) || []).length, (css.match(/}/g) || []).length, 'public CSS has unbalanced blocks');

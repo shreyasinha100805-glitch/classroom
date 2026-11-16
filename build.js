@@ -44,4 +44,11 @@ for (const target of targetDirs) {
   }
 }
 
+// Flask serves the same frontend assets from static/.
+for (const directory of assetDirs) {
+  if (fs.existsSync(directory)) {
+    copyRecursive(directory, path.join('static', directory));
+  }
+}
+
 console.log('--- Classroom AI Frontend Build Completed Successfully ---');

@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -35,11 +36,20 @@ class OCRPreprocessingTests(unittest.TestCase):
         image = np.zeros((1700, 2100, 3), dtype=np.uint8)
         original = image.copy()
 
-        for variant_name in ("original_rgb", "hsv_chalk"):
+        for variant_name in ("original_rgb", "upscaled", "hsv_chalk"):
             variant = make_ocr_variant(image, variant_name)
             self.assertLessEqual(max(variant.shape[:2]), 1600, variant_name)
 
         np.testing.assert_array_equal(image, original)
+
+    def test_small_text_upscale_preserves_aspect_ratio_and_uses_two_x_cubic_size(self):
+        variant = make_ocr_variant(self.image, "upscaled")
+
+        self.assertEqual(variant.shape[:2], (480, 640))
+        self.assertAlmostEqual(
+            variant.shape[1] / variant.shape[0],
+            self.image.shape[1] / self.image.shape[0],
+        )
 
     def test_production_preprocessor_still_writes_for_classifier(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -65,6 +75,25 @@ class OCRPreprocessingTests(unittest.TestCase):
             ), patch("preprocessing.image_processing.cv2.imdecode") as decode:
                 self.assertIsNone(safe_imread(str(source)))
             decode.assert_not_called()
+
+    def test_oversized_image_is_rejected_before_full_decode(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "over_limit.jpg"
+            large_image = np.zeros((2830, 2830, 3), dtype=np.uint8)
+            self.assertTrue(cv2.imwrite(str(source), large_image))
+
+            with patch("preprocessing.image_processing.MAX_UPLOAD_PIXELS", 8_000_000), patch(
+                "preprocessing.image_processing.cv2.imdecode"
+            ) as decode:
+                self.assertIsNone(safe_imread(str(source)))
+            decode.assert_not_called()
+
+            from pipeline import validate_image
+
+            with patch.dict(os.environ, {"MAX_UPLOAD_PIXELS": "8000000"}):
+                validation = validate_image(str(source))
+            self.assertFalse(validation["valid"])
+            self.assertIn("too large", validation["error"])
 
 
 if __name__ == "__main__":
