@@ -63,6 +63,14 @@ assert.equal(read('css/style.css'), read('static/css/style.css'), 'Flask static 
 assert.match(read('public/css/style.css'), /@media\s*\(/, 'responsive CSS is missing from public output');
 
 const frontendScript = read('js/script.js');
+assert.match(frontendScript, /function logRateLimitResponse\(/, '429 responses must emit correlation diagnostics');
+assert.match(frontendScript, /function diagnosticFetch\(/, 'frontend fetches must check rate-limit responses');
+assert.match(frontendScript, /X-ClassMind-Request-ID/, 'frontend diagnostics must read the Flask correlation ID');
+assert.match(frontendScript, /Retry-After/, 'frontend diagnostics must preserve retry timing evidence');
+const diagnosticsStart = frontendScript.indexOf('function diagnosticRoute(');
+const diagnosticsEnd = frontendScript.indexOf("document.addEventListener('DOMContentLoaded'", diagnosticsStart);
+const diagnosticsCode = frontendScript.slice(diagnosticsStart, diagnosticsEnd);
+assert.doesNotMatch(diagnosticsCode, /Authorization|Cookie|document\.cookie|response\.text|response\.json/i, '429 diagnostics must not record credentials, cookies, or response bodies');
 assert.match(frontendScript, /Text Capture Needs Review/, 'unverified OCR must use the review state');
 assert.match(frontendScript, /STAGE 6\.0 NOTES WITHHELD/, 'unverified OCR must not be labeled as generated notes');
 assert.match(frontendScript, /notesVerified \? `<div class="note-actions-group">/, 'copy and export actions must be conditional on verified notes');
