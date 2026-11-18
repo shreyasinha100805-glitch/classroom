@@ -21,6 +21,85 @@ function getApiBaseUrl() {
     return '';
 }
 
+function diagnosticRoute(requestUrl) {
+    let pathname = '/unknown';
+    try {
+        pathname = new URL(requestUrl, window.location.href).pathname;
+    } catch (e) {
+        // Keep diagnostics useful without recording an unparseable URL.
+    }
+
+    if (/^\/api\/analyze\/jobs\/[^/]+$/.test(pathname)) return '/api/analyze/jobs/:jobId';
+    if (/^\/api\/analyze\/[^/]+$/.test(pathname)) return '/api/analyze/:filename';
+    if (/^\/uploads\/[^/]+$/.test(pathname)) return '/uploads/:filename';
+    if (/^\/pipeline_output\/[^/]+$/.test(pathname)) return '/pipeline_output/:filename';
+    return pathname;
+}
+
+function logRateLimitResponse(response, requestUrl, method) {
+    if (!response || response.status !== 429 || !response.headers) return;
+
+    const readHeader = (name) => {
+        const value = response.headers.get(name);
+        return value ? String(value).slice(0, 256) : null;
+    };
+    const classmindRequestId = readHeader('X-ClassMind-Request-ID');
+    const renderRequestId = readHeader('Rndr-Id');
+    const vercelRequestId = readHeader('X-Vercel-Id');
+    const renderOrigin = readHeader('X-Render-Origin-Server');
+    let responseSource = 'unknown';
+    if (classmindRequestId) {
+        responseSource = 'flask-handler';
+    } else if (renderOrigin || renderRequestId) {
+        responseSource = 'render-path-observed; handler-unconfirmed';
+    } else if (vercelRequestId) {
+        responseSource = 'vercel-id-observed; upstream-unconfirmed';
+    }
+
+    const rateLimitHeaders = {};
+    [
+        'Retry-After',
+        'RateLimit',
+        'RateLimit-Policy',
+        'RateLimit-Limit',
+        'RateLimit-Remaining',
+        'RateLimit-Reset',
+        'X-RateLimit-Limit',
+        'X-RateLimit-Remaining',
+        'X-RateLimit-Reset',
+        'X-RateLimit-Policy',
+    ].forEach((name) => {
+        const value = readHeader(name);
+        if (value !== null) rateLimitHeaders[name] = value;
+    });
+
+    console.warn('[ClassMind 429 diagnostic]', {
+        timestamp: new Date().toISOString(),
+        method: String(method || 'GET').toUpperCase(),
+        route: diagnosticRoute(requestUrl),
+        status: response.status,
+        requestId: classmindRequestId || renderRequestId || vercelRequestId || null,
+        responseSource,
+        responseHeaders: {
+            classmindRequestId,
+            renderRequestId,
+            vercelRequestId,
+            renderOrigin,
+            server: readHeader('Server'),
+            cfRay: readHeader('CF-Ray'),
+        },
+        rateLimitHeaders,
+    });
+}
+
+async function diagnosticFetch(input, init) {
+    const response = await window.fetch(input, init);
+    const requestUrl = typeof input === 'string' ? input : (input && input.url) || '/unknown';
+    const method = (init && init.method) || (input && input.method) || 'GET';
+    logRateLimitResponse(response, requestUrl, method);
+    return response;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     initThemeSwitcher();
     initConstellationBackground();
@@ -71,7 +150,7 @@ function initAuthState() {
             e.preventDefault();
             localStorage.removeItem('boardai_user');
             try {
-                await fetch('/api/auth/logout', { method: 'POST' });
+                await diagnosticFetch('/api/auth/logout', { method: 'POST' });
             } catch (err) {}
             showToast('You have been logged out.', 'info');
             initAuthState();
@@ -87,7 +166,7 @@ async function wakeUpBackend(statusEl) {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
             if (statusEl) statusEl.textContent = `Server is waking up… (${attempt}/${maxAttempts}). This takes ~30 s on first use.`;
-            const res = await fetch('/api/health', { method: 'GET', headers: { 'Accept': 'application/json' } });
+            const res = await diagnosticFetch('/api/health', { method: 'GET', headers: { 'Accept': 'application/json' } });
             if (res.ok) return true;
         } catch (_) { /* still waking */ }
         if (attempt < maxAttempts) await new Promise(r => setTimeout(r, retryDelayMs));
@@ -143,7 +222,7 @@ function initAuthForms() {
                 if (!awake) { showError('Server is taking too long to respond. Please try again in a moment.'); return; }
                 hideError();
 
-                const res = await fetch('/api/auth/login', {
+                const res = await diagnosticFetch('/api/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify({ login_identifier: identifier.trim(), password })
@@ -186,7 +265,7 @@ function initAuthForms() {
                 if (!awake) { showError('Server is taking too long to respond. Please try again in a moment.'); return; }
                 hideError();
 
-                const res = await fetch('/api/auth/signup', {
+                const res = await diagnosticFetch('/api/auth/signup', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify({ username: username.trim(), email: email.trim(), password, confirm_password: confirmPassword })
@@ -571,7 +650,7 @@ function initUploadDropzone() {
             try {
                 btn.classList.add('loading');
                 btn.style.opacity = '0.7';
-                const response = await fetch(src);
+                const response = await diagnosticFetch(src);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const blob = await response.blob();
                 const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
@@ -721,7 +800,7 @@ function initUploadDropzone() {
                 if (statusEl) statusEl.textContent = `Server is waking up... (attempt ${attempt}/${maxAttempts}). This takes ~30s on first load.`;
                 if (barFill) barFill.style.width = `${Math.min(attempt * 8, 40)}%`;
 
-                const res = await fetch(healthUrl, { method: 'GET', headers: { 'Accept': 'application/json' } });
+                const res = await diagnosticFetch(healthUrl, { method: 'GET', headers: { 'Accept': 'application/json' } });
                 if (res.ok) {
                     if (statusEl) statusEl.textContent = 'Server is online! Starting upload...';
                     if (barFill) barFill.style.width = '45%';
@@ -772,7 +851,7 @@ function initUploadDropzone() {
                 if (barFill) barFill.style.width = '55%';
 
                 // /api/upload is proxied by vercel.json → https://classroom-backend-cp6o.onrender.com/api/upload
-                const res = await fetch('/api/upload', {
+                const res = await diagnosticFetch('/api/upload', {
                     method: 'POST',
                     body: formData,
                     headers: { 'Accept': 'application/json' }
@@ -862,7 +941,7 @@ async function loadDecoupledGallery(galleryGrid) {
     if (!files || files.length === 0) {
         try {
             // /api/files is proxied by vercel.json → Render backend
-            const res = await fetch('/api/files', { headers: { 'Accept': 'application/json' } });
+            const res = await diagnosticFetch('/api/files', { headers: { 'Accept': 'application/json' } });
             if (res.ok) {
                 const data = await res.json();
                 if (data.success && data.files) files = data.files;
@@ -1225,7 +1304,7 @@ function initAnalysisDrawer() {
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
-            const res = await fetch(url, { ...options, signal: controller.signal });
+            const res = await diagnosticFetch(url, { ...options, signal: controller.signal });
             const contentType = res.headers.get('content-type') || '';
             const body = await res.text();
             let data = null;

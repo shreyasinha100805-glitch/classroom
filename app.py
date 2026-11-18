@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 import time
 import secrets
 import re
+from datetime import datetime, timezone
 from uuid import uuid4
 from PIL import Image
 from werkzeug.utils import secure_filename
@@ -43,7 +44,8 @@ from flask import (
     session,
     redirect,
     url_for,
-    flash
+    flash,
+    g,
 )
 
 import auth
@@ -216,6 +218,24 @@ DEFAULT_TRUSTED_ORIGINS = [
 ]
 CORS_ALLOWED_METHODS = "GET, POST, OPTIONS, HEAD"
 CORS_ALLOWED_HEADERS = "Content-Type, Authorization, Accept"
+CORS_EXPOSED_HEADERS = (
+    "X-ClassMind-Request-ID",
+    "Rndr-Id",
+    "X-Vercel-Id",
+    "X-Render-Origin-Server",
+    "CF-Ray",
+    "Server",
+    "Retry-After",
+    "RateLimit",
+    "RateLimit-Policy",
+    "RateLimit-Limit",
+    "RateLimit-Remaining",
+    "RateLimit-Reset",
+    "X-RateLimit-Limit",
+    "X-RateLimit-Remaining",
+    "X-RateLimit-Reset",
+    "X-RateLimit-Policy",
+)
 
 env_origins = os.environ.get("TRUSTED_ORIGINS", "")
 if env_origins:
@@ -248,6 +268,12 @@ def _vary_on_origin(response):
 
 
 @app.before_request
+def assign_classmind_request_id():
+    """Create an app-owned ID for requests that reach Flask."""
+    g.classmind_request_id = uuid4().hex
+
+
+@app.before_request
 def handle_options_preflight():
     """Reject unconfigured browser origins and handle allowed preflight requests."""
     origin = request.headers.get("Origin")
@@ -273,7 +299,41 @@ def add_cors_headers(response):
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Allow-Methods"] = CORS_ALLOWED_METHODS
         response.headers["Access-Control-Allow-Headers"] = CORS_ALLOWED_HEADERS
+        existing = [
+            value.strip()
+            for value in response.headers.get("Access-Control-Expose-Headers", "").split(",")
+            if value.strip()
+        ]
+        for header_name in CORS_EXPOSED_HEADERS:
+            if not any(value.lower() == header_name.lower() for value in existing):
+                existing.append(header_name)
+        response.headers["Access-Control-Expose-Headers"] = ", ".join(existing)
     return _vary_on_origin(response) if origin else response
+
+
+@app.after_request
+def add_request_diagnostics(response):
+    """Identify Flask-handled responses without recording request secrets or bodies."""
+    request_id = getattr(g, "classmind_request_id", None)
+    if request_id is None:
+        request_id = uuid4().hex
+        g.classmind_request_id = request_id
+    response.headers["X-ClassMind-Request-ID"] = request_id
+
+    if request.path.startswith("/api/") or response.status_code == 429:
+        route = request.url_rule.rule if request.url_rule is not None else "unmatched"
+        timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
+            "+00:00", "Z"
+        )
+        logger.info(
+            "[HTTP] timestamp=%s request_id=%s method=%s route=%s status=%s response_source=flask",
+            timestamp,
+            request_id,
+            request.method,
+            route,
+            response.status_code,
+        )
+    return response
 
 
 # Initialize user database (schema preserved)

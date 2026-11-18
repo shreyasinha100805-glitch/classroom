@@ -76,6 +76,9 @@ class Phase1BackendTestCase(unittest.TestCase):
         self.assertEqual(res.headers.get("Access-Control-Allow-Origin"), trusted)
         self.assertEqual(res.headers.get("Access-Control-Allow-Credentials"), "true")
         self.assertNotEqual(res.headers.get("Access-Control-Allow-Origin"), "*")
+        exposed = res.headers.get("Access-Control-Expose-Headers", "")
+        self.assertIn("X-ClassMind-Request-ID", exposed)
+        self.assertIn("Retry-After", exposed)
 
     def test_04_cors_untrusted_origin_rejected(self):
         """Verify untrusted origin does NOT receive allow-origin header."""
@@ -214,6 +217,67 @@ class Phase1BackendTestCase(unittest.TestCase):
             os.remove(test_file)
         except OSError:
             pass
+
+    def test_request_diagnostics_correlate_flask_responses_without_logging_secrets(self):
+        supplied_id = "client-controlled-request-id"
+        secret_token = "Bearer diagnostic-test-secret"
+        secret_cookie = "session=diagnostic-test-cookie"
+        with self.assertLogs(flask_module.logger, level="INFO") as captured:
+            res = self.client.get(
+                "/api/health",
+                headers={
+                    "Authorization": secret_token,
+                    "Cookie": secret_cookie,
+                    "X-ClassMind-Request-ID": supplied_id,
+                },
+            )
+
+        request_id = res.headers.get("X-ClassMind-Request-ID", "")
+        self.assertRegex(request_id, r"^[0-9a-f]{32}$")
+        self.assertNotEqual(request_id, supplied_id)
+        logs = "\n".join(captured.output)
+        self.assertIn("[HTTP] timestamp=", logs)
+        self.assertIn(
+            f"request_id={request_id} method=GET route=/api/health status=200 response_source=flask",
+            logs,
+        )
+        self.assertNotIn(secret_token, logs)
+        self.assertNotIn(secret_cookie, logs)
+
+    def test_request_diagnostics_preserve_rate_limit_headers(self):
+        trusted = "https://classroom-tan-iota.vercel.app"
+        secret_token = "Bearer rate-limit-diagnostic-test-secret"
+        secret_cookie = "session=rate-limit-diagnostic-test-cookie"
+        response_body = "rate-limit-diagnostic-private-response-body"
+        with self.assertLogs(flask_module.logger, level="INFO") as captured:
+            with self.app.test_request_context(
+                "/api/health",
+                headers={
+                    "Origin": trusted,
+                    "Authorization": secret_token,
+                    "Cookie": secret_cookie,
+                },
+            ):
+                self.app.preprocess_request()
+                limited = flask_module.Response(response_body, status=429)
+                limited.headers["Retry-After"] = "17"
+                limited.headers["RateLimit-Remaining"] = "0"
+                res = self.app.process_response(limited)
+
+        self.assertEqual(res.status_code, 429)
+        self.assertEqual(res.headers.get("Retry-After"), "17")
+        self.assertEqual(res.headers.get("RateLimit-Remaining"), "0")
+        request_id = res.headers.get("X-ClassMind-Request-ID", "")
+        self.assertRegex(request_id, r"^[0-9a-f]{32}$")
+        logs = "\n".join(captured.output)
+        self.assertIn("[HTTP] timestamp=", logs)
+        self.assertIn(
+            f"request_id={request_id} method=GET route=/api/health status=429 response_source=flask",
+            logs,
+        )
+        self.assertNotIn(secret_token, logs)
+        self.assertNotIn(secret_cookie, logs)
+        self.assertNotIn(response_body, logs)
 
 
 if __name__ == "__main__":
