@@ -20,6 +20,7 @@ MAX_UPLOAD_PIXELS = int(os.environ.get("MAX_UPLOAD_PIXELS", str(8_000_000)))
 # used automatically in production because they can erase chalk strokes.
 OCR_VARIANTS = (
     "original_rgb",
+    "upscaled",
     "grayscale",
     "clahe",
     "adaptive_threshold",
@@ -115,6 +116,16 @@ def make_ocr_variant(image, variant):
     try:
         if variant == "original_rgb":
             return base
+        if variant == "upscaled":
+            height, width = base.shape[:2]
+            scale = min(2.0, 1600.0 / max(height, width))
+            if scale <= 1.0:
+                return base.copy()
+            return cv2.resize(
+                base,
+                (max(1, round(width * scale)), max(1, round(height * scale))),
+                interpolation=cv2.INTER_CUBIC,
+            )
         gray = cv2.cvtColor(base, cv2.COLOR_BGR2GRAY)
         if variant == "grayscale":
             return gray

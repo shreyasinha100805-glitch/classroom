@@ -38,7 +38,7 @@ PIPELINE_PROCESSES = [
     {
         "step": "4.0",
         "title": "OCR Text Extraction",
-        "description": "OCR checks the original image and at most one gentle color-enhanced variant.",
+        "description": "OCR checks the original image and at most one bounded text-upscale or chalk-color alternative.",
         "icon": "type"
     },
     {
@@ -413,18 +413,28 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
         ocr_variant = "original_rgb"
         ocr_quality = assess_ocr_quality(ocr_clean)
         if not ocr_quality["reliable"]:
-            # One color-aware fallback is the production limit. No thresholded
-            # variants are run on every request; the evaluator compares those
-            # offline where latency and memory are measured explicitly.
+            # A small printed-text image benefits from cubic upscaling; board
+            # images instead get one conservative chalk-color alternative.
+            # No thresholded variants are run on every request.
             try:
                 from preprocessing.image_processing import make_ocr_variant, safe_imread
                 from ocr.extractor import extract_text_from_image
                 source_image = safe_imread(image_path)
                 if source_image is not None:
                     source_h, source_w = source_image.shape[:2]
-                    color_variant = make_ocr_variant(source_image, "hsv_chalk")
-                    variant_h, variant_w = color_variant.shape[:2]
-                    fallback_items = extract_text_from_image(color_variant, label="HSV chalk enhancement")
+                    fallback_variant = (
+                        "upscaled"
+                        if predicted_class == "text" and max(source_h, source_w) <= 800
+                        else "hsv_chalk"
+                    )
+                    fallback_image = make_ocr_variant(source_image, fallback_variant)
+                    variant_h, variant_w = fallback_image.shape[:2]
+                    fallback_label = (
+                        "2x cubic text upscale"
+                        if fallback_variant == "upscaled"
+                        else "HSV chalk enhancement"
+                    )
+                    fallback_items = extract_text_from_image(fallback_image, label=fallback_label)
                     if variant_w != source_w or variant_h != source_h:
                         scale_x, scale_y = source_w / variant_w, source_h / variant_h
                         for fallback_item in fallback_items:
@@ -435,23 +445,23 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
                     fallback_quality = assess_ocr_quality(fallback_items)
                     current_key = (
                         ocr_quality["meaningful_term_count"],
-                        ocr_quality["average_confidence"],
+                        ocr_quality["analysis_average_confidence"],
                         ocr_quality["supported_token_count"],
                         ocr_quality["analysis_region_count"],
                     )
                     fallback_key = (
                         fallback_quality["meaningful_term_count"],
-                        fallback_quality["average_confidence"],
+                        fallback_quality["analysis_average_confidence"],
                         fallback_quality["supported_token_count"],
                         fallback_quality["analysis_region_count"],
                     )
                     if fallback_key > current_key:
                         ocr_clean = fallback_items
                         ocr_quality = fallback_quality
-                        ocr_variant = "hsv_chalk"
-                    del color_variant, source_image
+                        ocr_variant = fallback_variant
+                    del fallback_image, source_image
             except Exception:
-                logger.warning("[Pipeline 4.0] Optional chalk enhancement failed; keeping original OCR output", exc_info=True)
+                logger.warning("[Pipeline 4.0] Optional OCR variant failed; keeping original OCR output", exc_info=True)
 
         # Maintain the original API's raw combined recognized text. NLP and
         # note generation use the separate, conservative analysis transcript.
@@ -478,7 +488,7 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
         stages_log.append({
             "step": "4.0",
             "title": "OCR Text Extraction",
-            "description": "OCR checks the original image and at most one gentle color-enhanced variant.",
+            "description": "OCR checks the original image and at most one bounded text-upscale or chalk-color alternative.",
             "status": stage_status,
             "details": stage_details,
         })

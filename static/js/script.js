@@ -1235,6 +1235,9 @@ function initAnalysisDrawer() {
                 data = null;
             }
             if (!res.ok) {
+                const retryAfterMs = window.ClassMindRetryPolicy.parseRetryAfterMs(
+                    res.headers.get('Retry-After')
+                );
                 const isAsyncJobCreate = url === '/api/analyze/jobs' &&
                     String(options && options.method || 'GET').toUpperCase() === 'POST';
                 const isLegacyJobsFilenameError = res.status === 404 && isAsyncJobCreate &&
@@ -1249,10 +1252,18 @@ function initAnalysisDrawer() {
                     compatibilityError.asyncUnsupported = true;
                     throw compatibilityError;
                 }
-                const err = new Error((data && data.error)
+                let message = (data && data.error)
                     ? data.error
-                    : `The analysis service returned HTTP ${res.status}${contentType.includes('json') ? '.' : ' from an upstream service.'} Please retry shortly.`);
+                    : (res.status === 429
+                        ? 'The analysis service is rate-limiting requests. Please wait before trying again.'
+                        : `The analysis service returned HTTP ${res.status}${contentType.includes('json') ? '.' : ' from an upstream service.'} Please retry shortly.`);
+                if (res.status === 429 && retryAfterMs !== null) {
+                    message += ` Wait at least ${Math.max(1, Math.ceil(retryAfterMs / 1000))} seconds before trying again.`;
+                }
+                const err = new Error(message);
                 err.status = res.status;
+                err.retryAfterMs = retryAfterMs;
+                err.retryable = res.status === 429 || res.status >= 500;
                 throw err;
             }
             return data;
@@ -1375,73 +1386,95 @@ function initAnalysisDrawer() {
                     storeActiveJobId(savedName, jobId);
                 }
 
-                const deadline = Date.now() + 15 * 60 * 1000;
-                let consecutivePollErrors = 0;
+                await window.ClassMindRetryPolicy.withJobPollLock(jobId, async () => {
+                    const deadline = Date.now() + 15 * 60 * 1000;
+                    let consecutivePollErrors = 0;
+                    let nextPollDelayMs = null;
 
-                while (Date.now() < deadline && runId === activeAnalysisRun) {
-                    if (initialStatus) {
-                        updateDrawerProgress(initialStatus);
-                        initialStatus = null;
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 2500));
-                    if (runId !== activeAnalysisRun) return;
-
-                    let job;
-                    try {
-                        job = await requestAnalysisJson(
-                            `/api/analyze/jobs/${encodeURIComponent(jobId)}`,
-                            { headers: { 'Accept': 'application/json' } },
-                            15000
-                        );
-                        consecutivePollErrors = 0;
-                    } catch (err) {
+                    while (Date.now() < deadline && runId === activeAnalysisRun) {
+                        if (initialStatus) {
+                            updateDrawerProgress(initialStatus);
+                            initialStatus = null;
+                        }
+                        const pollDelayMs = nextPollDelayMs === null
+                            ? window.ClassMindRetryPolicy.pollIntervalMs(
+                                document.visibilityState === 'visible'
+                            )
+                            : nextPollDelayMs;
+                        nextPollDelayMs = null;
+                        await new Promise(resolve => setTimeout(resolve, pollDelayMs));
                         if (runId !== activeAnalysisRun) return;
-                        if (err.status === 404) {
-                            clearActiveJobId(savedName, jobId);
-                            throw new Error('This analysis job is no longer available. It may have been interrupted by a server restart. Retry to reconnect or start it again.');
-                        }
-                        if (err.retryable || err.status >= 500) {
-                            consecutivePollErrors += 1;
-                            if (consecutivePollErrors <= 5) {
-                                updateDrawerProgress('reconnecting');
-                                continue;
+
+                        let job;
+                        try {
+                            job = await requestAnalysisJson(
+                                `/api/analyze/jobs/${encodeURIComponent(jobId)}`,
+                                { headers: { 'Accept': 'application/json' } },
+                                15000
+                            );
+                            consecutivePollErrors = 0;
+                        } catch (err) {
+                            if (runId !== activeAnalysisRun) return;
+                            if (err.status === 404) {
+                                clearActiveJobId(savedName, jobId);
+                                throw new Error('This analysis job is no longer available. It may have been interrupted by a server restart. Retry to reconnect or start it again.');
                             }
+                            if (err.retryable || err.status >= 500) {
+                                consecutivePollErrors += 1;
+                                if (window.ClassMindRetryPolicy.shouldRetryPoll(
+                                    err.status,
+                                    consecutivePollErrors
+                                )) {
+                                    updateDrawerProgress('reconnecting');
+                                    nextPollDelayMs = window.ClassMindRetryPolicy.computeRetryDelayMs(
+                                        consecutivePollErrors,
+                                        err.retryAfterMs
+                                    );
+                                    continue;
+                                }
+                                if (err.status === 429) {
+                                    const retryMessage = 'Status checks were repeatedly rate-limited. The existing job is saved; retry later to reconnect without submitting it again.';
+                                    err.message = err.retryAfterMs === null || err.retryAfterMs === undefined
+                                        ? retryMessage
+                                        : `${retryMessage} Wait at least ${Math.max(1, Math.ceil(err.retryAfterMs / 1000))} seconds.`;
+                                }
+                            }
+                            throw err;
                         }
-                        throw err;
+
+                        if (!job || !job.status) {
+                            throw new Error('The analysis service returned an invalid job status. Please retry.');
+                        }
+                        if (job.status === 'queued' || job.status === 'running') {
+                            updateDrawerProgress(job.status, job.current_stage);
+                            continue;
+                        }
+                        if (job.status === 'completed') {
+                            if (!job.result) throw new Error('The completed job did not include analysis results.');
+                            clearActiveJobId(savedName, jobId);
+                            renderDrawerResults(job.result, originalName);
+                            showToast('AI pipeline analysis completed!', 'success');
+                            return;
+                        }
+                        if (job.status === 'failed') {
+                            clearActiveJobId(savedName, jobId);
+                            throw new Error(job.error || 'The image could not be processed. Please retry.');
+                        }
+                        if (job.status === 'not_found') {
+                            clearActiveJobId(savedName, jobId);
+                            throw new Error(job.error || 'This analysis job is no longer available. Retry the analysis.');
+                        }
+                        throw new Error('The analysis service returned an unknown job status. Please retry.');
                     }
 
-                    if (!job || !job.status) {
-                        throw new Error('The analysis service returned an invalid job status. Please retry.');
+                    if (runId === activeAnalysisRun) {
+                        renderDrawerError(
+                            'Analysis is taking longer than expected. It may still be running; retry to reconnect to the active job.',
+                            savedName,
+                            originalName
+                        );
                     }
-                    if (job.status === 'queued' || job.status === 'running') {
-                        updateDrawerProgress(job.status, job.current_stage);
-                        continue;
-                    }
-                    if (job.status === 'completed') {
-                        if (!job.result) throw new Error('The completed job did not include analysis results.');
-                        clearActiveJobId(savedName, jobId);
-                        renderDrawerResults(job.result, originalName);
-                        showToast('AI pipeline analysis completed!', 'success');
-                        return;
-                    }
-                    if (job.status === 'failed') {
-                        clearActiveJobId(savedName, jobId);
-                        throw new Error(job.error || 'The image could not be processed. Please retry.');
-                    }
-                    if (job.status === 'not_found') {
-                        clearActiveJobId(savedName, jobId);
-                        throw new Error(job.error || 'This analysis job is no longer available. Retry the analysis.');
-                    }
-                    throw new Error('The analysis service returned an unknown job status. Please retry.');
-                }
-
-                if (runId === activeAnalysisRun) {
-                    renderDrawerError(
-                        'Analysis is taking longer than expected. It may still be running; retry to reconnect to the active job.',
-                        savedName,
-                        originalName
-                    );
-                }
+                }, navigator.locks);
             } catch (err) {
                 if (runId !== activeAnalysisRun) return;
                 renderDrawerError(
@@ -1526,19 +1559,21 @@ function initAnalysisDrawer() {
     function renderDrawerResults(data, originalName) {
         const classification = data.classification || { class: 'Unknown', confidence: 0 };
         const text = data.extracted_text || '';
-        const ocrWarning = data.ocr_warning || null;
         const ocrQuality = data.ocr_quality || {};
         const keywords = data.keywords || [];
         const topics = data.topics || [];
-        const notes = data.structured_notes || {
-            title: 'Classroom Board Notes',
-            date: new Date().toLocaleDateString(),
-            board_type: classification.class,
-            confidence: classification.confidence,
-            key_points: text ? [text] : [],
-            markdown: text,
-            plain_text: text
-        };
+        const notes = data.structured_notes || {};
+        const hasNotesContent = Boolean(
+            (typeof notes.markdown === 'string' && notes.markdown.trim()) ||
+            (typeof notes.plain_text === 'string' && notes.plain_text.trim())
+        );
+        const notesVerified = hasNotesContent && !data.ocr_warning &&
+            ocrQuality.reliable !== false && notes.title !== 'Text Capture Needs Review';
+        const ocrWarning = data.ocr_warning ||
+            (ocrQuality.reliable === false ? 'The OCR transcript could not be verified.' : null);
+        const notesWarning = ocrWarning || notes.warning ||
+            'Verified study notes were not returned for this image.';
+        const retakeInstructions = 'Retake closer to the board with the camera in focus. Keep all writing inside the frame, hold the camera parallel to the board, and avoid glare, shadows, and motion blur.';
         const savedName = data.processed_filename ? data.processed_filename.replace(/^proc_/, '') : originalName;
 
         drawerContent.innerHTML = `
@@ -1569,7 +1604,7 @@ function initAnalysisDrawer() {
                     <div class="step-circle">${ocrWarning ? '!' : '✓'}</div>
                     <div class="step-content">
                         <h4>4.0 OCR Text Extraction</h4>
-                        <p>${escapeHtml(ocrWarning || `RapidOCR checked the original image and ${ocrQuality.variant === 'hsv_chalk' ? 'a chalk-color enhancement' : 'kept the original color input'}. ${(data.ocr_items || []).length} raw regions retained.`)}</p>
+                        <p>${escapeHtml(ocrWarning || `RapidOCR checked the original image and ${ocrQuality.variant === 'hsv_chalk' ? 'a chalk-color enhancement' : (ocrQuality.variant === 'upscaled' ? 'a 2x cubic text upscale' : 'kept the original color input')}. ${(data.ocr_items || []).length} raw regions retained.`)}</p>
                     </div>
                 </div>
                 <div class="step-node ${ocrWarning ? 'warning' : 'completed'}">
@@ -1579,25 +1614,25 @@ function initAnalysisDrawer() {
                         <p>${escapeHtml(ocrWarning ? 'Skipped because the OCR transcript could not be verified.' : `The extracted text is analyzed to identify important keywords (${keywords.length}) and topics (${topics.length}).`)}</p>
                     </div>
                 </div>
-                <div class="step-node ${ocrWarning ? 'warning' : 'completed'}">
-                    <div class="step-circle">${ocrWarning ? '!' : '✓'}</div>
+                <div class="step-node ${notesVerified ? 'completed' : 'warning'}">
+                    <div class="step-circle">${notesVerified ? '✓' : '!'}</div>
                     <div class="step-content">
                         <h4>6.0 Structured Notes Generation</h4>
-                        <p>${escapeHtml(ocrWarning ? 'Notes were withheld because the recognized text is unreliable.' : 'The system combines verified extracted information and generates organized notes for the user.')}</p>
+                        <p>${escapeHtml(notesVerified ? 'The system combines verified extracted information and generates organized notes for the user.' : 'Study notes were withheld. Review the OCR warning and retake guidance below.')}</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Stage 6.0 Structured Notes Generation Display Block -->
+            <!-- Stage 6.0 result; warning-only state is never presented as generated notes -->
             <div class="structured-notes-card">
-                ${ocrWarning ? `<div class="ocr-warning-callout" role="alert"><strong>Clearer capture needed</strong><span>${escapeHtml(ocrWarning)}</span></div>` : ''}
+                ${!notesVerified ? `<div class="ocr-warning-callout" role="alert"><strong>Text Capture Needs Review</strong><span>${escapeHtml(notesWarning)}</span><span>${escapeHtml(retakeInstructions)}</span></div>` : ''}
                 <div class="note-header-strip">
                     <div>
-                        <div class="step-tag-pill" style="margin-bottom: 6px; display: inline-block;">STAGE 6.0 GENERATED NOTES</div>
-                        <h3 class="note-title-text">${escapeHtml(notes.title || 'Classroom Study Notes')}</h3>
+                        <div class="step-tag-pill" style="margin-bottom: 6px; display: inline-block;">${notesVerified ? 'STAGE 6.0 GENERATED NOTES' : 'STAGE 6.0 NOTES WITHHELD'}</div>
+                        <h3 class="note-title-text">${escapeHtml(notesVerified ? (notes.title || 'Classroom Study Notes') : 'Text Capture Needs Review')}</h3>
                         <div class="note-date-text">${escapeHtml(notes.date || '')} • Source: ${escapeHtml((notes.board_type || classification.class || 'Board').toUpperCase())}</div>
                     </div>
-                    <div class="note-actions-group">
+                    ${notesVerified ? `<div class="note-actions-group">
                         <button type="button" class="btn-note-action" id="btn-copy-notes" title="Copy complete formatted notes">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -1621,25 +1656,23 @@ function initAnalysisDrawer() {
                             </svg>
                             .TXT
                         </button>
-                    </div>
+                    </div>` : ''}
                 </div>
 
                 <!-- Structured Key Points -->
-                <div class="note-points-box">
+                ${notesVerified ? `<div class="note-points-box">
                     <div class="note-section-heading">Key Extracted Takeaways & Bullet Points</div>
                     <ul class="note-bullet-list">
-                        ${
-                            (notes.key_points && notes.key_points.length > 0)
-                                ? notes.key_points.map(pt => `
-                                    <li class="note-bullet-item">
-                                        <span class="note-bullet-dot">▸</span>
-                                        <span>${escapeHtml(pt)}</span>
-                                    </li>
-                                  `).join('')
-                                : '<li class="note-bullet-item" style="color: var(--text-muted); font-style: italic;">No bullet points generated.</li>'
-                        }
+                        ${(notes.key_points && notes.key_points.length > 0)
+                            ? notes.key_points.map(pt => `
+                                <li class="note-bullet-item">
+                                    <span class="note-bullet-dot">▸</span>
+                                    <span>${escapeHtml(pt)}</span>
+                                </li>
+                              `).join('')
+                            : '<li class="note-bullet-item" style="color: var(--text-muted); font-style: italic;">No bullet points generated.</li>'}
                     </ul>
-                </div>
+                </div>` : ''}
             </div>
 
             <!-- Stage 3.0 CNN Classification & Softmax Deep Learning Block -->

@@ -112,12 +112,14 @@ check("RapidOCR list/tuple elapsed times are normalized before logging",
       "_elapsed_seconds(elapse)" in ocr_src)
 check("OCR preprocessing exposes the requested bounded comparison variants",
       all(name in pre_src for name in [
-          "original_rgb", "grayscale", "clahe", "adaptive_threshold",
+          "original_rgb", "upscaled", "grayscale", "clahe", "adaptive_threshold",
           "otsu_threshold", "lab_clahe", "hsv_chalk", "perspective_corrected",
       ]))
-check("Production OCR starts from the source upload and caps retries at one",
+check("Production OCR selects one evidence-ranked fallback from the original upload",
       "ocr_results = extract_text(image_path)" in pipe_src and
-      "make_ocr_variant(source_image, \"hsv_chalk\")" in pipe_src)
+      '"upscaled"' in pipe_src and '"hsv_chalk"' in pipe_src and
+      "make_ocr_variant(source_image, fallback_variant)" in pipe_src and
+      "fallback_key > current_key" in pipe_src)
 check("NLP uses supported OCR evidence and warns instead of summarizing unreliable text",
       "assess_ocr_quality(ocr_clean)" in pipe_src and
       "low_confidence_notes(ocr_quality[\"warning\"])" in pipe_src and
