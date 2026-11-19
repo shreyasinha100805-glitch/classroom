@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+import weakref
 from pathlib import Path
 
 import cv2
@@ -76,21 +77,89 @@ class OCRPreprocessingTests(unittest.TestCase):
                 self.assertIsNone(safe_imread(str(source)))
             decode.assert_not_called()
 
+    def test_decode_retry_runs_after_encoded_array_is_released(self):
+        class ImageMetadata:
+            size = (20, 20)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "placeholder.jpg"
+            source.write_bytes(b"small encoded placeholder")
+            encoded_array_refs = []
+
+            def fail_decode(encoded, _flags):
+                encoded_array_refs.append(weakref.ref(encoded))
+                raise ValueError("synthetic decode failure")
+
+            def fallback_read(_path):
+                self.assertIsNone(encoded_array_refs[0]())
+                return self.image.copy()
+
+            with patch("preprocessing.image_processing.PilImage.open", return_value=ImageMetadata()), \
+                 patch("preprocessing.image_processing.cv2.imdecode", new=fail_decode), \
+                 patch("preprocessing.image_processing.cv2.imread", side_effect=fallback_read):
+                decoded = safe_imread(str(source))
+
+        self.assertEqual(decoded.shape, self.image.shape)
+
+    def test_memory_error_does_not_retry_a_second_full_decode(self):
+        class ImageMetadata:
+            size = (20, 20)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "placeholder.jpg"
+            source.write_bytes(b"small encoded placeholder")
+
+            def fail_decode(*_args):
+                raise MemoryError("synthetic decode allocation failure")
+
+            with patch("preprocessing.image_processing.PilImage.open", return_value=ImageMetadata()), \
+                 patch("preprocessing.image_processing.cv2.imdecode", new=fail_decode), \
+                 patch("preprocessing.image_processing.cv2.imread") as fallback:
+                self.assertIsNone(safe_imread(str(source)))
+            fallback.assert_not_called()
+
     def test_oversized_image_is_rejected_before_full_decode(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "over_limit.jpg"
-            large_image = np.zeros((2830, 2830, 3), dtype=np.uint8)
-            self.assertTrue(cv2.imwrite(str(source), large_image))
+            source.write_bytes(b"metadata-only image fixture")
+
+            class ImageMetadata:
+                size = (2830, 2830)
+                format = "JPEG"
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_args):
+                    return False
+
+                def verify(self):
+                    return None
 
             with patch("preprocessing.image_processing.MAX_UPLOAD_PIXELS", 8_000_000), patch(
-                "preprocessing.image_processing.cv2.imdecode"
-            ) as decode:
+                "preprocessing.image_processing.PilImage.open",
+                return_value=ImageMetadata(),
+            ), patch("preprocessing.image_processing.cv2.imdecode") as decode:
                 self.assertIsNone(safe_imread(str(source)))
             decode.assert_not_called()
 
             from pipeline import validate_image
 
-            with patch.dict(os.environ, {"MAX_UPLOAD_PIXELS": "8000000"}):
+            with patch.dict(os.environ, {"MAX_UPLOAD_PIXELS": "8000000"}), patch(
+                "pipeline.Image.open", return_value=ImageMetadata()
+            ):
                 validation = validate_image(str(source))
             self.assertFalse(validation["valid"])
             self.assertIn("too large", validation["error"])

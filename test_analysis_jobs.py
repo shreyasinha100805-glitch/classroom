@@ -8,11 +8,14 @@ import threading
 import time
 import types
 import unittest
+import weakref
 from pathlib import Path
 from unittest.mock import patch
 
 import analysis_jobs
 from analysis_jobs import AnalysisJobError, AnalysisJobManager, JobQueueFullError
+import numpy as np
+from ocr.extractor import OCRGeometryRejected, RAPIDOCR_MAX_SIDE_LEN
 import pipeline
 from PIL import Image
 
@@ -25,6 +28,24 @@ def wait_for_status(manager, job_id, expected, timeout=3):
             return job
         time.sleep(0.01)
     raise AssertionError(f"Job {job_id} did not reach status {expected!r}")
+
+
+class FakeDetectorPreprocess:
+    limit_side_len = 736
+    limit_type = "min"
+
+
+class FakeTextDetector:
+    def get_preprocess(self, _max_wh):
+        return FakeDetectorPreprocess()
+
+
+class FakeRapidOCREngineSettings:
+    max_side_len = RAPIDOCR_MAX_SIDE_LEN
+    min_side_len = 30
+    min_height = 30
+    width_height_ratio = 8.0
+    text_det = FakeTextDetector()
 
 
 class AnalysisJobManagerTests(unittest.TestCase):
@@ -259,6 +280,32 @@ class AnalysisJobRouteTests(unittest.TestCase):
             self.assertEqual(len(result["stages"]), 6)
             self.assertTrue(all(stage["status"] == "completed" for stage in result["stages"]))
             self.assertEqual(result["structured_notes"]["title"], "Test notes")
+
+    def test_export_is_withheld_when_ocr_geometry_requires_review(self):
+        unverified_result = {
+            "ocr_quality": {"reliable": False, "geometry_rejected": True},
+            "ocr_warning": "Crop the board and try again.",
+            "structured_notes": {
+                "title": "Text Capture Needs Review",
+                "markdown": "# Text Capture Needs Review\n",
+                "plain_text": "Text Capture Needs Review\n",
+            },
+        }
+        with patch.object(
+            self.manager,
+            "completed_result_for_filename",
+            return_value=unverified_result,
+        ):
+            for output_format in ("md", "txt"):
+                with self.subTest(output_format=output_format):
+                    response = self.client.get(
+                        f"/api/export-notes/board.jpg?format={output_format}"
+                    )
+                    self.assertEqual(response.status_code, 409)
+                    self.assertIn(
+                        "OCR transcript was not verified",
+                        response.get_json()["error"],
+                    )
 
     def test_cors_preflight_allows_only_required_headers_and_methods(self):
         origin = "https://classroom-tan-iota.vercel.app"
@@ -583,7 +630,7 @@ class RapidOCRExtractorTests(unittest.TestCase):
         bbox = [[0, 0], [10, 0], [10, 10], [0, 10]]
         rapid_result = [[bbox, "board text", 0.95]]
 
-        class FakeEngine:
+        class FakeEngine(FakeRapidOCREngineSettings):
             def __init__(self, elapsed):
                 self.elapsed = elapsed
 
@@ -657,7 +704,7 @@ class CNNInferenceTests(unittest.TestCase):
     def test_empty_rapidocr_result_is_a_valid_empty_result(self):
         import ocr.extractor as extractor
 
-        class EmptyEngine:
+        class EmptyEngine(FakeRapidOCREngineSettings):
             def __call__(self, _image_path):
                 return None, None
 
@@ -748,6 +795,8 @@ class PipelineProgressTests(unittest.TestCase):
             }
             ocr_module = types.ModuleType("ocr.extractor")
             ocr_module.OCREngineUnavailable = type("OCREngineUnavailable", (RuntimeError,), {})
+            ocr_module.OCRGeometryRejected = OCRGeometryRejected
+            ocr_module.RAPIDOCR_MAX_SIDE_LEN = RAPIDOCR_MAX_SIDE_LEN
             ocr_module.extract_text = lambda _path: [
                 {"text": "Database table", "confidence": 0.99},
                 {"text": "Primary key", "confidence": 0.98},
@@ -812,6 +861,8 @@ class PipelineProgressTests(unittest.TestCase):
             }
             ocr_module = types.ModuleType("ocr.extractor")
             ocr_module.OCREngineUnavailable = type("OCREngineUnavailable", (RuntimeError,), {})
+            ocr_module.OCRGeometryRejected = OCRGeometryRejected
+            ocr_module.RAPIDOCR_MAX_SIDE_LEN = RAPIDOCR_MAX_SIDE_LEN
             ocr_module.extract_text = lambda _path: []
 
             with patch.dict(sys.modules, {
@@ -829,6 +880,162 @@ class PipelineProgressTests(unittest.TestCase):
         self.assertEqual(result["structured_notes"]["key_points"], [])
         self.assertIn("No study notes were generated from uncertain text.", result["structured_notes"]["markdown"])
         self.assertEqual(result["stages"][3]["status"], "warning")
+
+    def test_ocr_geometry_rejection_keeps_six_stages_and_withholds_notes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = os.path.join(temp_dir, "panorama.jpg")
+            output_dir = os.path.join(temp_dir, "output")
+            os.makedirs(output_dir)
+            Image.new("RGB", (24, 24), color="white").save(image_path)
+
+            preprocess_module = types.ModuleType("preprocessing.image_processing")
+            preprocess_module.preprocess_image = lambda _source, output: Path(output).write_bytes(b"processed")
+            fallback_calls = []
+            preprocess_module.safe_imread = lambda *_args: fallback_calls.append("read")
+            preprocess_module.make_ocr_variant = lambda *_args: fallback_calls.append("variant")
+
+            cnn_module = types.ModuleType("cnn.predict")
+            cnn_module.predict_image = lambda _path: {
+                "class": "board",
+                "confidence": 0.9,
+                "probabilities": {"board": 0.9, "text": 0.05, "background": 0.05},
+            }
+            ocr_module = types.ModuleType("ocr.extractor")
+            ocr_module.OCREngineUnavailable = type("OCREngineUnavailable", (RuntimeError,), {})
+            ocr_module.OCRGeometryRejected = OCRGeometryRejected
+            ocr_module.RAPIDOCR_MAX_SIDE_LEN = RAPIDOCR_MAX_SIDE_LEN
+
+            def reject_geometry(_path):
+                raise OCRGeometryRejected("test panorama exceeds the detector budget")
+
+            ocr_module.extract_text = reject_geometry
+            fake_modules = {
+                "preprocessing.image_processing": preprocess_module,
+                "cnn.predict": cnn_module,
+                "ocr.extractor": ocr_module,
+            }
+            with patch.dict(sys.modules, fake_modules), patch.object(
+                pipeline, "PIPELINE_OUTPUT_FOLDER", output_dir
+            ):
+                result = pipeline.run_pipeline_data(image_path)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(len(result["stages"]), 6)
+        self.assertEqual(result["stages"][3]["status"], "warning")
+        self.assertEqual(result["ocr_quality"]["variant"], "geometry_rejected")
+        self.assertFalse(result["ocr_quality"]["reliable"])
+        self.assertTrue(result["ocr_quality"]["geometry_rejected"])
+        self.assertEqual(result["analysis_text"], "")
+        self.assertEqual(result["keywords"], [])
+        self.assertEqual(result["topics"], [])
+        self.assertEqual(result["structured_notes"]["title"], "Text Capture Needs Review")
+        self.assertIn("crop the image", result["ocr_warning"])
+        self.assertEqual(fallback_calls, [])
+
+    def test_large_uncertain_image_skips_second_full_resolution_ocr_pass(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = os.path.join(temp_dir, "board.jpg")
+            output_dir = os.path.join(temp_dir, "output")
+            os.makedirs(output_dir)
+            Path(image_path).write_bytes(b"metadata supplied by validation mock")
+            fallback_calls = []
+
+            preprocess_module = types.ModuleType("preprocessing.image_processing")
+            preprocess_module.preprocess_image = lambda _source, output: Path(output).write_bytes(b"processed")
+            preprocess_module.safe_imread = lambda *_args: fallback_calls.append("read")
+            preprocess_module.make_ocr_variant = lambda *_args: fallback_calls.append("variant")
+
+            cnn_module = types.ModuleType("cnn.predict")
+            cnn_module.predict_image = lambda _path: {
+                "class": "board",
+                "confidence": 0.9,
+                "probabilities": {"board": 0.9, "text": 0.05, "background": 0.05},
+            }
+            ocr_module = types.ModuleType("ocr.extractor")
+            ocr_module.OCREngineUnavailable = type("OCREngineUnavailable", (RuntimeError,), {})
+            ocr_module.OCRGeometryRejected = OCRGeometryRejected
+            ocr_module.RAPIDOCR_MAX_SIDE_LEN = RAPIDOCR_MAX_SIDE_LEN
+            ocr_module.extract_text = lambda _path: []
+
+            fake_modules = {
+                "preprocessing.image_processing": preprocess_module,
+                "cnn.predict": cnn_module,
+                "ocr.extractor": ocr_module,
+            }
+            validation = {
+                "valid": True,
+                "filename": "board.jpg",
+                "width": 3264,
+                "height": 2448,
+                "format": "JPEG",
+            }
+            with patch.dict(sys.modules, fake_modules), patch.object(
+                pipeline, "PIPELINE_OUTPUT_FOLDER", output_dir
+            ), patch.object(pipeline, "validate_image", return_value=validation):
+                result = pipeline.run_pipeline_data(image_path)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(len(result["stages"]), 6)
+        self.assertEqual(result["classification"]["class"], "board")
+        self.assertFalse(result["ocr_quality"]["reliable"])
+        self.assertEqual(result["structured_notes"]["title"], "Text Capture Needs Review")
+        self.assertIn("No study notes were generated", result["ocr_warning"])
+        self.assertEqual(fallback_calls, [])
+
+    def test_ocr_fallback_failure_releases_source_and_variant_arrays(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = os.path.join(temp_dir, "board.jpg")
+            output_dir = os.path.join(temp_dir, "output")
+            os.makedirs(output_dir)
+            Image.new("RGB", (24, 24), color="white").save(image_path)
+
+            source_refs = []
+            fallback_refs = []
+            preprocess_module = types.ModuleType("preprocessing.image_processing")
+            preprocess_module.preprocess_image = lambda _source, output: Path(output).write_bytes(b"processed")
+
+            def fake_safe_imread(_path):
+                image = np.zeros((16, 16, 3), dtype=np.uint8)
+                source_refs.append(weakref.ref(image))
+                return image
+
+            def fake_variant(_image, _variant):
+                image = np.zeros((16, 16, 3), dtype=np.uint8)
+                fallback_refs.append(weakref.ref(image))
+                return image
+
+            preprocess_module.safe_imread = fake_safe_imread
+            preprocess_module.make_ocr_variant = fake_variant
+
+            cnn_module = types.ModuleType("cnn.predict")
+            cnn_module.predict_image = lambda _path: {"class": "board", "confidence": 0.9}
+            ocr_module = types.ModuleType("ocr.extractor")
+            ocr_module.OCREngineUnavailable = type("OCREngineUnavailable", (RuntimeError,), {})
+            ocr_module.OCRGeometryRejected = OCRGeometryRejected
+            ocr_module.RAPIDOCR_MAX_SIDE_LEN = RAPIDOCR_MAX_SIDE_LEN
+            ocr_module.extract_text = lambda _path: []
+
+            def fail_fallback(_image, **_kwargs):
+                raise RuntimeError("synthetic fallback failure")
+
+            ocr_module.extract_text_from_image = fail_fallback
+            fake_modules = {
+                "preprocessing.image_processing": preprocess_module,
+                "cnn.predict": cnn_module,
+                "ocr.extractor": ocr_module,
+            }
+            with patch.dict(sys.modules, fake_modules), patch.object(
+                pipeline, "PIPELINE_OUTPUT_FOLDER", output_dir
+            ):
+                result = pipeline.run_pipeline_data(image_path)
+
+        self.assertTrue(result["success"])
+        self.assertFalse(result["ocr_quality"]["reliable"])
+        self.assertEqual(result["structured_notes"]["title"], "Text Capture Needs Review")
+        self.assertTrue(source_refs)
+        self.assertTrue(fallback_refs)
+        self.assertIsNone(source_refs[0]())
+        self.assertIsNone(fallback_refs[0]())
 
     def test_frontend_copies_use_async_jobs_and_are_identical(self):
         root = Path(__file__).parent
@@ -933,7 +1140,16 @@ class InferenceSemaphoreTests(unittest.TestCase):
             self.assertTrue(all(not thread.is_alive() for thread in threads))
             self.assertEqual(len(constructor_calls), 1)
             engine, constructor_kwargs = constructor_calls[0]
-            self.assertEqual(constructor_kwargs, {"intra_op_num_threads": 1, "inter_op_num_threads": 1})
+            self.assertEqual(constructor_kwargs, {
+                "intra_op_num_threads": 1,
+                "inter_op_num_threads": 1,
+                "min_height": 30,
+                "width_height_ratio": 8.0,
+                "max_side_len": RAPIDOCR_MAX_SIDE_LEN,
+                "min_side_len": 30,
+                "det_limit_side_len": 736,
+                "det_limit_type": "min",
+            })
             self.assertTrue(all(result is engine for result in results))
         finally:
             extractor._ocr_engine = previous_engine

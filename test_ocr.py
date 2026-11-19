@@ -6,11 +6,29 @@ import numpy as np
 import ocr.extractor as extractor
 
 
+class FakeDetectorPreprocess:
+    limit_side_len = 736
+    limit_type = "min"
+
+
+class FakeTextDetector:
+    def get_preprocess(self, _max_wh):
+        return FakeDetectorPreprocess()
+
+
+class FakeRapidOCREngine:
+    max_side_len = extractor.RAPIDOCR_MAX_SIDE_LEN
+    min_side_len = 30
+    min_height = 30
+    width_height_ratio = 8.0
+    text_det = FakeTextDetector()
+
+
 class OCRRegionValidationTests(unittest.TestCase):
     def test_keeps_raw_text_confidence_and_validates_box(self):
         bbox = [[5, 5], [45, 5], [45, 20], [5, 20]]
 
-        class FakeEngine:
+        class FakeEngine(FakeRapidOCREngine):
             def __call__(self, _image):
                 return [
                     [bbox, "DoB", 0.91],
@@ -31,7 +49,7 @@ class OCRRegionValidationTests(unittest.TestCase):
         first = [[5, 5], [45, 5], [45, 20], [5, 20]]
         second = [[55, 5], [95, 5], [95, 20], [55, 20]]
 
-        class FakeEngine:
+        class FakeEngine(FakeRapidOCREngine):
             def __call__(self, _image):
                 return [[first, "ID", 0.88], [second, "ID", 0.89]], 0.1
 
@@ -40,7 +58,7 @@ class OCRRegionValidationTests(unittest.TestCase):
         self.assertEqual([item["text"] for item in items], ["ID", "ID"])
 
     def test_rejects_malformed_boxes(self):
-        class FakeEngine:
+        class FakeEngine(FakeRapidOCREngine):
             def __call__(self, _image):
                 return [[[[1, 1], [20, 20]], "text", 0.9]], 0.1
 

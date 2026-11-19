@@ -198,16 +198,30 @@ def safe_imread(path: str):
         # OpenCV decode. Supported uploads are JPEG/PNG, both readable by Pillow.
         return None
 
+    bytes_data = None
+    numpy_array = None
+    decoded = None
+    retry_with_imread = False
     try:
         with open(path, "rb") as f:
             bytes_data = bytearray(f.read())
         numpy_array = np.frombuffer(bytes_data, dtype=np.uint8)
-        del bytes_data  # release as early as possible
-        img = cv2.imdecode(numpy_array, cv2.IMREAD_COLOR)
-        del numpy_array
-        return img
+        decoded = cv2.imdecode(numpy_array, cv2.IMREAD_COLOR)
+    except MemoryError:
+        # A second full decode after an allocation failure could worsen the
+        # memory pressure. Let the caller report an unreadable image instead.
+        logger.exception("Image decode ran out of memory for %s", path)
     except Exception:
+        # Keep the Unicode-path fallback, but release the encoded buffer and
+        # its NumPy view before asking OpenCV to retry the decode.
+        retry_with_imread = True
+    finally:
+        numpy_array = None
+        bytes_data = None
+
+    if retry_with_imread:
         return cv2.imread(path)
+    return decoded
 
 
 def safe_imwrite(path: str, img):
