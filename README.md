@@ -16,6 +16,7 @@ An end-to-end intelligent multimodal deep learning system engineered to capture 
 | Component | Platform | Live URL | Status |
 |---|---|---|---|
 | **Production Frontend** | Vercel CDN | [https://classroom-tan-iota.vercel.app/](https://classroom-tan-iota.vercel.app/) | **Active / Production** |
+| **Preview Frontend** | Vercel CDN | [https://classroom-git-fix-ocr-014b03-shreyasinha100805-glitchs-projects.vercel.app/](https://classroom-git-fix-ocr-014b03-shreyasinha100805-glitchs-projects.vercel.app/)] | **Active / Preview** |
 | **AI Inference Backend** | Render Container | [https://classroom-backend-cp6o.onrender.com/](https://classroom-backend-cp6o.onrender.com/) | **Active / Production** |
 
 > [!NOTE]
