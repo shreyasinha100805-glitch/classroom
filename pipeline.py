@@ -386,10 +386,22 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
     _log_memory("before-ocr")
     try:
         import time
-        from ocr.extractor import OCREngineUnavailable, extract_text
+        from ocr.extractor import (
+            OCRGeometryRejected,
+            OCREngineUnavailable,
+            RAPIDOCR_MAX_SIDE_LEN,
+            extract_text,
+        )
         from nlp.quality import assess_ocr_quality
         ocr_started = time.perf_counter()
-        ocr_results = extract_text(image_path)
+        geometry_rejection = None
+        try:
+            ocr_results = extract_text(image_path)
+        except OCRGeometryRejected as exc:
+            # An unsafe OCR shape is a review result, not an analysis-job
+            # failure. Keep classification and the six-stage response intact.
+            geometry_rejection = exc
+            ocr_results = []
         ocr_clean = []
         if ocr_results:
             for item in ocr_results:
@@ -412,10 +424,28 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
         # output, which applied denoising, threshold-like contrast and sharpening.
         ocr_variant = "original_rgb"
         ocr_quality = assess_ocr_quality(ocr_clean)
-        if not ocr_quality["reliable"]:
+        if geometry_rejection is not None:
+            ocr_variant = "geometry_rejected"
+            ocr_quality["analysis_text"] = ""
+            ocr_quality["analysis_items"] = []
+            ocr_quality["reliable"] = False
+            ocr_quality["warning"] = geometry_rejection.user_message
+            ocr_quality["geometry_rejected"] = True
+            logger.warning(
+                "[Pipeline 4.0] OCR skipped for unsafe image geometry: %s",
+                geometry_rejection.reason,
+            )
+        elif (
+            not ocr_quality["reliable"]
+            and max(val["width"], val["height"]) <= RAPIDOCR_MAX_SIDE_LEN
+        ):
             # A small printed-text image benefits from cubic upscaling; board
             # images instead get one conservative chalk-color alternative.
-            # No thresholded variants are run on every request.
+            # Larger originals already exercised the OCR geometry cap; avoid
+            # decoding a second full-resolution copy and repeating inference
+            # after an uncertain first pass.
+            source_image = None
+            fallback_image = None
             try:
                 from preprocessing.image_processing import make_ocr_variant, safe_imread
                 from ocr.extractor import extract_text_from_image
@@ -459,9 +489,20 @@ def run_pipeline_data(image_path: str, progress_callback=None) -> dict:
                         ocr_clean = fallback_items
                         ocr_quality = fallback_quality
                         ocr_variant = fallback_variant
-                    del fallback_image, source_image
             except Exception:
                 logger.warning("[Pipeline 4.0] Optional OCR variant failed; keeping original OCR output", exc_info=True)
+            finally:
+                # These arrays can be several MiB each. Clear both even when
+                # variant generation or OCR inference raises.
+                fallback_image = None
+                source_image = None
+        elif not ocr_quality["reliable"]:
+            logger.info(
+                "[Pipeline 4.0] Skipping optional OCR retry for %dx%d source; "
+                "the bounded original pass was inconclusive",
+                val["width"],
+                val["height"],
+            )
 
         # Maintain the original API's raw combined recognized text. NLP and
         # note generation use the separate, conservative analysis transcript.
